@@ -10,6 +10,7 @@ from chromadb.config import Settings
 from chromadb.utils import embedding_functions
 import tiktoken
 from pydantic import BaseModel, Field
+import PyPDF2
 
 from .document import Document
 
@@ -83,6 +84,30 @@ class VectorStore:
             
         return chunks
 
+    def _read_pdf(self, file_path: Path) -> str:
+        """
+        Read text content from a PDF file.
+        
+        Args:
+            file_path: Path to the PDF file
+            
+        Returns:
+            Extracted text content
+        """
+        logger.info(f"Reading PDF file: {file_path}")
+        text = []
+        
+        try:
+            with open(file_path, 'rb') as file:
+                pdf_reader = PyPDF2.PdfReader(file)
+                for page in pdf_reader.pages:
+                    text.append(page.extract_text())
+        except Exception as e:
+            logger.error(f"Error reading PDF file {file_path}: {e}")
+            raise
+            
+        return "\n".join(text)
+
     async def index_file(self, file_path: Path, metadata: Optional[Dict[str, Any]] = None) -> None:
         """
         Index a file's content in the vector store.
@@ -93,8 +118,13 @@ class VectorStore:
         """
         logger.info(f"Indexing file: {file_path}")
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+            # Handle PDF files
+            if file_path.suffix.lower() == '.pdf':
+                content = self._read_pdf(file_path)
+            else:
+                # Handle text files
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
         except UnicodeDecodeError:
             logger.warning(f"Skipping binary file: {file_path}")
             return

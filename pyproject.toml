@@ -6,6 +6,9 @@ build-backend = "hatchling.build"
 name = "intuit"
 version = "0.1.0"
 description = "A flexible personal assistant with voice interface"
+authors = [
+    {name = "Your Name", email = "your.email@example.com"},
+]
 requires-python = ">=3.12"
 dependencies = [
     "openai>=1.12.0",
@@ -27,6 +30,7 @@ dependencies = [
     "langchain>=0.1.0",
     "langchain-openai>=0.0.5",
     "python-dotenv>=1.0.0",
+    "pypdf2>=3.0.0",
 ]
 
 [project.scripts]
@@ -44,6 +48,14 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/intuit"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/intuit",
+]
+
+[tool.hatch.build.targets.wheel.shared-data]
+"src/intuit" = "intuit"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
