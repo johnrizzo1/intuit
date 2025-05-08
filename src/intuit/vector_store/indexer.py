@@ -3,6 +3,7 @@ Vector store implementation for indexing filesystem content.
 """
 import os
 import logging
+import json
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 import chromadb
@@ -21,6 +22,13 @@ logging.basicConfig(
     force=True
 )
 logger = logging.getLogger(__name__)
+
+class FileMetadata(BaseModel):
+    """Metadata about an indexed file."""
+    path: str
+    size: int
+    modified_time: float
+    chunks: int
 
 class VectorStore:
     """
@@ -63,6 +71,72 @@ class VectorStore:
         
         # Initialize tokenizer for chunking
         self.tokenizer = tiktoken.get_encoding("cl100k_base")
+        
+        # Load file metadata cache
+        self.cache_file = Path(persist_directory) / "file_metadata.json"
+        self.file_metadata = self._load_metadata_cache()
+
+    def _load_metadata_cache(self) -> Dict[str, FileMetadata]:
+        """Load the file metadata cache from disk."""
+        if self.cache_file.exists():
+            try:
+                with open(self.cache_file, 'r') as f:
+                    data = json.load(f)
+                return {k: FileMetadata(**v) for k, v in data.items()}
+            except Exception as e:
+                logger.error(f"Error loading metadata cache: {e}")
+        return {}
+
+    def _save_metadata_cache(self) -> None:
+        """Save the file metadata cache to disk."""
+        try:
+            with open(self.cache_file, 'w') as f:
+                json.dump({k: v.dict() for k, v in self.file_metadata.items()}, f)
+        except Exception as e:
+            logger.error(f"Error saving metadata cache: {e}")
+
+    def _is_file_changed(self, file_path: Path) -> bool:
+        """
+        Check if a file has changed since last indexing.
+        
+        Args:
+            file_path: Path to the file to check
+            
+        Returns:
+            True if the file has changed or is new, False otherwise
+        """
+        try:
+            stat = file_path.stat()
+            cached = self.file_metadata.get(str(file_path))
+            
+            if not cached:
+                return True
+                
+            return (cached.size != stat.st_size or 
+                   abs(cached.modified_time - stat.st_mtime) > 1.0)  # 1 second tolerance
+        except Exception as e:
+            logger.error(f"Error checking file changes: {e}")
+            return True
+
+    def _update_file_metadata(self, file_path: Path, chunks: int) -> None:
+        """
+        Update the metadata cache for a file.
+        
+        Args:
+            file_path: Path to the file
+            chunks: Number of chunks created
+        """
+        try:
+            stat = file_path.stat()
+            self.file_metadata[str(file_path)] = FileMetadata(
+                path=str(file_path),
+                size=stat.st_size,
+                modified_time=stat.st_mtime,
+                chunks=chunks
+            )
+            self._save_metadata_cache()
+        except Exception as e:
+            logger.error(f"Error updating file metadata: {e}")
 
     def _chunk_text(self, text: str) -> List[str]:
         """
@@ -116,6 +190,11 @@ class VectorStore:
             file_path: Path to the file to index
             metadata: Additional metadata about the file
         """
+        # Check if file needs to be reindexed
+        if not self._is_file_changed(file_path):
+            logger.info(f"Skipping unchanged file: {file_path}")
+            return
+
         logger.info(f"Indexing file: {file_path}")
         try:
             # Handle PDF files
@@ -148,6 +227,12 @@ class VectorStore:
         chunks = self._chunk_text(content)
         logger.info(f"Created {len(chunks)} chunks for {file_path}")
         
+        # Delete existing chunks for this file
+        try:
+            self.collection.delete(where={"file_path": str(file_path)})
+        except Exception as e:
+            logger.error(f"Error deleting existing chunks for {file_path}: {e}")
+        
         # Add chunks to collection
         for i, chunk in enumerate(chunks):
             chunk_id = f"{file_path}_{i}"
@@ -160,6 +245,9 @@ class VectorStore:
                 )
             except Exception as e:
                 logger.error(f"Error adding chunk {i} from {file_path}: {e}")
+        
+        # Update file metadata cache
+        self._update_file_metadata(file_path, len(chunks))
 
     async def index_directory(self, directory: Path, exclude_patterns: Optional[List[str]] = None) -> None:
         """
@@ -239,5 +327,8 @@ class VectorStore:
         try:
             # Use synchronous delete method
             self.collection.delete(where={})
+            # Clear metadata cache
+            self.file_metadata.clear()
+            self._save_metadata_cache()
         except Exception as e:
             logger.error(f"Error clearing documents: {e}") 
