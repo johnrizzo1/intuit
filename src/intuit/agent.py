@@ -2,6 +2,7 @@
 Core agent implementation for Intuit.
 """
 import asyncio
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
@@ -15,6 +16,9 @@ from langchain_core.runnables import RunnableParallel, RunnablePassthrough
 from langchain_core.messages import AIMessage, HumanMessage
 
 from .tools.base import BaseTool
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 class AgentConfig(BaseModel):
     """Configuration for the Intuit agent."""
@@ -49,7 +53,20 @@ class Agent:
         """Create the agent executor with tools and prompt template."""
         prompt = ChatPromptTemplate.from_messages([
             ("system", "You are Intuit, a helpful personal assistant. "
-                      "You have access to various tools to help the user. "
+                      "You have access to various tools to help the user:\n"
+                      "1. Web search for online information\n"
+                      "2. Filesystem operations for searching, reading, and managing files\n"
+                      "3. Gmail integration for email management (when enabled)\n"
+                      "4. Weather information (when enabled)\n\n"
+                      "When users ask about finding files or searching content, "
+                      "you MUST use the filesystem tool with the 'search' action. "
+                      "The filesystem tool has semantic search capabilities through its vector store. "
+                      "To search for files, use the filesystem tool with these parameters:\n"
+                      "- action: 'search'\n"
+                      "- path: the directory to search in\n"
+                      "- query: the search query\n\n"
+                      "DO NOT suggest manual commands or alternative search methods. "
+                      "Always use the filesystem tool for file searches.\n\n"
                       "Always be concise and clear in your responses."),
             MessagesPlaceholder(variable_name="chat_history"),
             ("human", "{input}"),

@@ -4,6 +4,7 @@ Main entry point for Intuit.
 import asyncio
 import typer
 import sys
+import logging
 from typing import Optional
 from pathlib import Path
 from dotenv import load_dotenv
@@ -15,13 +16,22 @@ from .agent import Agent, AgentConfig
 from .tools.web_search import WebSearchTool
 from .tools.gmail import GmailTool
 from .tools.weather import WeatherTool
+from .tools.filesystem import FilesystemTool
 from .vector_store.indexer import VectorStore
 from .ui.cli import run_cli
 from .ui.voice import run_voice
 
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    force=True
+)
+logger = logging.getLogger(__name__)
+
 app = typer.Typer(no_args_is_help=True)
 
-def create_agent(
+async def create_agent(
     model: str = "gpt-4-turbo-preview",
     temperature: float = 0.7,
     index_filesystem: bool = False,
@@ -43,6 +53,14 @@ def create_agent(
     Returns:
         Configured agent instance
     """
+    logger.info("Creating agent with configuration:")
+    logger.info("- Model: %s", model)
+    logger.info("- Temperature: %f", temperature)
+    logger.info("- Index filesystem: %s", index_filesystem)
+    logger.info("- Filesystem path: %s", filesystem_path)
+    logger.info("- Enable Gmail: %s", enable_gmail)
+    logger.info("- Enable Weather: %s", enable_weather)
+    
     # Initialize tools
     tools = [
         WebSearchTool(),
@@ -56,13 +74,18 @@ def create_agent(
     if enable_weather:
         tools.append(WeatherTool())
     
-    # Initialize vector store if requested
+    # Initialize vector store and filesystem tool if requested
     if index_filesystem:
+        logger.info("Initializing vector store")
         vector_store = VectorStore()
         if filesystem_path:
-            vector_store.index_directory(filesystem_path)
+            logger.info("Indexing directory: %s", filesystem_path)
+            await vector_store.index_directory(filesystem_path)
         else:
-            vector_store.index_directory(Path.home())
+            logger.info("Indexing home directory")
+            await vector_store.index_directory(Path.home())
+        logger.info("Adding filesystem tool")
+        tools.append(FilesystemTool(vector_store=vector_store))
     
     # Create agent configuration
     config = AgentConfig(
@@ -71,6 +94,7 @@ def create_agent(
     )
     
     # Create and return agent
+    logger.info("Creating agent with %d tools", len(tools))
     return Agent(tools=tools, config=config)
 
 @app.command()
@@ -78,7 +102,7 @@ def chat(
     query: Optional[str] = typer.Argument(None, help="Query to process"),
     model: str = typer.Option("gpt-4-turbo-preview", help="Model to use"),
     temperature: float = typer.Option(0.7, help="Model temperature"),
-    no_index: bool = typer.Option(True, help="Don't index filesystem"),
+    index: bool = typer.Option(False, "--index/--no-index", help="Enable/disable filesystem indexing"),
     index_path: Optional[Path] = typer.Option(None, help="Path to index"),
     enable_gmail: bool = typer.Option(False, help="Enable Gmail integration"),
     enable_weather: bool = typer.Option(False, help="Enable weather information"),
@@ -89,34 +113,34 @@ def chat(
     if not sys.stdin.isatty():
         quiet = True
 
-    agent = create_agent(
+    agent = asyncio.run(create_agent(
         model=model,
         temperature=temperature,
-        index_filesystem=not no_index,
+        index_filesystem=index,
         filesystem_path=index_path,
         enable_gmail=enable_gmail,
         enable_weather=enable_weather
-    )
+    ))
     asyncio.run(run_cli(agent, query, quiet))
 
 @app.command()
 def voice(
     model: str = typer.Option("gpt-4-turbo-preview", help="Model to use"),
     temperature: float = typer.Option(0.7, help="Model temperature"),
-    no_index: bool = typer.Option(False, help="Don't index filesystem"),
+    index: bool = typer.Option(False, "--index/--no-index", help="Enable/disable filesystem indexing"),
     index_path: Optional[Path] = typer.Option(None, help="Path to index"),
     enable_gmail: bool = typer.Option(False, help="Enable Gmail integration"),
     enable_weather: bool = typer.Option(False, help="Enable weather information"),
 ):
     """Start the Intuit assistant in voice mode."""
-    agent = create_agent(
+    agent = asyncio.run(create_agent(
         model=model,
         temperature=temperature,
-        index_filesystem=not no_index,
+        index_filesystem=index,
         filesystem_path=index_path,
         enable_gmail=enable_gmail,
         enable_weather=enable_weather
-    )
+    ))
     try:
         asyncio.run(run_voice(agent))
     except KeyboardInterrupt:

@@ -3,18 +3,31 @@ Filesystem tool implementation for Intuit.
 """
 import os
 import mimetypes
+import logging
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from pydantic import Field, PrivateAttr
 
 from .base import BaseTool
 
+# Set up logging
+logger = logging.getLogger(__name__)
+
 class FilesystemTool(BaseTool):
     """Tool for interacting with the filesystem."""
     
     name: str = Field(default="filesystem")
     description: str = Field(
-        default="Tool for filesystem operations like listing directories, reading files, and searching content."
+        default=(
+            "Tool for filesystem operations like listing directories, reading files, and searching content. "
+            "Use the 'search' action to find files by their content using semantic search. "
+            "Available actions:\n"
+            "- search: Find files by content (requires: path, query)\n"
+            "- list: List directory contents (requires: path)\n"
+            "- read: Read file contents (requires: path)\n"
+            "- write: Write content to file (requires: path, content)\n"
+            "- info: Get file information (requires: path)"
+        )
     )
     
     _vector_store: Optional[Any] = PrivateAttr(default=None)
@@ -22,6 +35,7 @@ class FilesystemTool(BaseTool):
     def __init__(self, vector_store=None, **data):
         super().__init__(**data)
         self._vector_store = vector_store
+        logger.info("FilesystemTool initialized with vector store: %s", bool(vector_store))
     
     async def _get_file_info(self, path: str) -> Dict[str, Any]:
         """Get information about a file."""
@@ -80,16 +94,23 @@ class FilesystemTool(BaseTool):
     
     async def _search_files(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
         """Search for files using vector store."""
+        logger.info("Searching files with query: %s", query)
         if not self._vector_store:
+            logger.error("Vector store not initialized")
             raise RuntimeError("Vector store not initialized")
         
-        results = await self._vector_store.search(query, limit=limit)
-        return [await self._get_file_info(result.metadata['path']) for result in results]
+        try:
+            results = await self._vector_store.search(query, limit=limit)
+            logger.info("Found %d results", len(results))
+            return [await self._get_file_info(result.metadata['path']) for result in results]
+        except Exception as e:
+            logger.error("Error searching files: %s", str(e))
+            raise
     
     async def run(
         self,
         action: str,
-        path: str,
+        path: str = ".",  # Default to current directory
         content: Optional[str] = None,
         recursive: bool = False,
         query: Optional[str] = None,
@@ -100,7 +121,7 @@ class FilesystemTool(BaseTool):
         
         Args:
             action: Operation to perform (list, read, write, info, search)
-            path: File or directory path
+            path: File or directory path (defaults to current directory)
             content: Content to write (for write action)
             recursive: List directory recursively
             query: Search query (for search action)
@@ -109,6 +130,7 @@ class FilesystemTool(BaseTool):
         Returns:
             Dict containing operation results
         """
+        logger.info("Running filesystem operation: %s", action)
         try:
             if action == "list":
                 contents = await self._list_directory(path, recursive)
@@ -152,7 +174,12 @@ class FilesystemTool(BaseTool):
             else:
                 raise ValueError(f"Invalid action: {action}")
         except Exception as e:
+            logger.error("Error in filesystem operation: %s", str(e))
             return {
                 "status": "error",
                 "message": str(e)
-            } 
+            }
+    
+    async def _arun(self, **kwargs) -> Any:
+        """Run the tool asynchronously."""
+        return await self.run(**kwargs) 

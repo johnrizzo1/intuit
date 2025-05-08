@@ -2,6 +2,7 @@
 Vector store implementation for indexing filesystem content.
 """
 import os
+import logging
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 import chromadb
@@ -11,6 +12,14 @@ import tiktoken
 from pydantic import BaseModel, Field
 
 from .document import Document
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    force=True
+)
+logger = logging.getLogger(__name__)
 
 class VectorStore:
     """
@@ -23,6 +32,7 @@ class VectorStore:
         chunk_size: int = 1000,
         chunk_overlap: int = 200,
     ):
+        logger.info(f"Initializing VectorStore with directory: {persist_directory}")
         self.persist_directory = persist_directory
         self.collection_name = collection_name
         self.chunk_size = chunk_size
@@ -48,6 +58,7 @@ class VectorStore:
             name=collection_name,
             embedding_function=self.embedding_function,
         )
+        logger.info("VectorStore initialized successfully")
         
         # Initialize tokenizer for chunking
         self.tokenizer = tiktoken.get_encoding("cl100k_base")
@@ -80,11 +91,15 @@ class VectorStore:
             file_path: Path to the file to index
             metadata: Additional metadata about the file
         """
+        logger.info(f"Indexing file: {file_path}")
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
         except UnicodeDecodeError:
-            # Skip binary files
+            logger.warning(f"Skipping binary file: {file_path}")
+            return
+        except Exception as e:
+            logger.error(f"Error reading file {file_path}: {e}")
             return
         
         # Create base metadata
@@ -101,15 +116,20 @@ class VectorStore:
         
         # Chunk the content
         chunks = self._chunk_text(content)
+        logger.info(f"Created {len(chunks)} chunks for {file_path}")
         
         # Add chunks to collection
         for i, chunk in enumerate(chunks):
             chunk_id = f"{file_path}_{i}"
-            await self.collection.add(
-                documents=[chunk],
-                metadatas=[base_metadata],
-                ids=[chunk_id]
-            )
+            try:
+                # Use synchronous add method
+                self.collection.add(
+                    documents=[chunk],
+                    metadatas=[base_metadata],
+                    ids=[chunk_id]
+                )
+            except Exception as e:
+                logger.error(f"Error adding chunk {i} from {file_path}: {e}")
 
     async def index_directory(self, directory: Path, exclude_patterns: Optional[List[str]] = None) -> None:
         """
@@ -119,19 +139,26 @@ class VectorStore:
             directory: Directory to index
             exclude_patterns: List of glob patterns to exclude
         """
+        logger.info(f"Indexing directory: {directory}")
         exclude_patterns = exclude_patterns or []
         
-        for file_path in directory.rglob("*"):
-            if file_path.is_file():
-                # Skip excluded files
-                if any(file_path.match(pattern) for pattern in exclude_patterns):
-                    continue
-                    
-                # Skip hidden files and directories
-                if any(part.startswith('.') for part in file_path.parts):
-                    continue
-                    
-                await self.index_file(file_path)
+        try:
+            for file_path in directory.rglob("*"):
+                if file_path.is_file():
+                    # Skip excluded files
+                    if any(file_path.match(pattern) for pattern in exclude_patterns):
+                        logger.debug(f"Skipping excluded file: {file_path}")
+                        continue
+                        
+                    # Skip hidden files and directories
+                    if any(part.startswith('.') for part in file_path.parts):
+                        logger.debug(f"Skipping hidden file: {file_path}")
+                        continue
+                        
+                    await self.index_file(file_path)
+            logger.info(f"Finished indexing directory: {directory}")
+        except Exception as e:
+            logger.error(f"Error indexing directory {directory}: {e}")
 
     async def search(self, query: str, n_results: int = 5) -> List[Document]:
         """
@@ -144,26 +171,43 @@ class VectorStore:
         Returns:
             List of relevant documents
         """
-        results = await self.collection.query(
-            query_texts=[query],
-            n_results=n_results
-        )
-        
-        documents = []
-        for i in range(len(results['documents'][0])):
-            doc = Document(
-                content=results['documents'][0][i],
-                metadata=results['metadatas'][0][i],
-                id=results['ids'][0][i]
+        logger.info(f"Searching for: {query}")
+        try:
+            # Use synchronous query method
+            results = self.collection.query(
+                query_texts=[query],
+                n_results=n_results
             )
-            documents.append(doc)
             
-        return documents
+            documents = []
+            for i in range(len(results['documents'][0])):
+                doc = Document(
+                    content=results['documents'][0][i],
+                    metadata=results['metadatas'][0][i],
+                    id=results['ids'][0][i]
+                )
+                documents.append(doc)
+            
+            logger.info(f"Found {len(documents)} results")
+            return documents
+        except Exception as e:
+            logger.error(f"Error searching: {e}")
+            return []
 
     async def delete_document(self, document_id: str) -> None:
         """Delete a document from the collection."""
-        await self.collection.delete(ids=[document_id])
+        logger.info(f"Deleting document: {document_id}")
+        try:
+            # Use synchronous delete method
+            self.collection.delete(ids=[document_id])
+        except Exception as e:
+            logger.error(f"Error deleting document {document_id}: {e}")
 
     async def clear(self) -> None:
         """Clear all documents from the collection."""
-        await self.collection.delete(where={}) 
+        logger.info("Clearing all documents")
+        try:
+            # Use synchronous delete method
+            self.collection.delete(where={})
+        except Exception as e:
+            logger.error(f"Error clearing documents: {e}") 
