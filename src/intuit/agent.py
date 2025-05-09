@@ -1,6 +1,7 @@
 """
 Core agent implementation for Intuit.
 """
+import os
 import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor
@@ -16,17 +17,26 @@ from langchain_core.runnables import RunnableParallel, RunnablePassthrough
 from langchain_core.messages import AIMessage, HumanMessage
 
 from .tools.base import BaseTool
+from .voice import VoiceOutput
 
 # Set up logging
 logger = logging.getLogger(__name__)
 
 class AgentConfig(BaseModel):
     """Configuration for the Intuit agent."""
-    model_name: str = Field(default="gpt-4-turbo-preview")
+    model_name: str = Field(default=os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini"))
     temperature: float = Field(default=0.7)
     max_tokens: int = Field(default=2000)
     streaming: bool = Field(default=True)
     max_workers: int = Field(default=4)  # Number of threads for the thread pool
+    use_voice: bool = Field(default=False)  # Whether to use voice output
+    voice_language: str = Field(default="en")  # Language for voice output
+    voice_slow: bool = Field(default=False)  # Whether to speak slowly
+    
+    # OpenAI provider configuration
+    openai_api_base: Optional[str] = Field(default=None)
+    openai_api_type: Optional[str] = Field(default=None)
+    openai_api_version: Optional[str] = Field(default=None)
 
 class Agent:
     """
@@ -38,16 +48,40 @@ class Agent:
         config: Optional[AgentConfig] = None,
     ):
         self.config = config or AgentConfig()
-        self.llm = ChatOpenAI(
-            model_name=self.config.model_name,
-            temperature=self.config.temperature,
-            max_tokens=self.config.max_tokens,
-            streaming=self.config.streaming,
-        )
+        
+        # Get OpenAI configuration from environment or config
+        openai_api_base = self.config.openai_api_base or os.getenv("OPENAI_API_BASE")
+        openai_api_type = self.config.openai_api_type or os.getenv("OPENAI_API_TYPE")
+        openai_api_version = self.config.openai_api_version or os.getenv("OPENAI_API_VERSION")
+        
+        # Configure OpenAI client
+        openai_kwargs = {
+            "model_name": self.config.model_name,
+            "temperature": self.config.temperature,
+            "max_tokens": self.config.max_tokens,
+            "streaming": self.config.streaming,
+        }
+        
+        # Add provider-specific configuration
+        if openai_api_base:
+            openai_kwargs["openai_api_base"] = openai_api_base
+        if openai_api_type:
+            openai_kwargs["openai_api_type"] = openai_api_type
+        if openai_api_version:
+            openai_kwargs["openai_api_version"] = openai_api_version
+            
+        self.llm = ChatOpenAI(**openai_kwargs)
+        
         self.tools = tools
         self.agent_executor = self._create_agent_executor()
         self.chat_history: List[Dict[str, Any]] = []
         self.thread_pool = ThreadPoolExecutor(max_workers=self.config.max_workers)
+        
+        # Initialize voice output if enabled
+        self.voice = VoiceOutput(
+            language=self.config.voice_language,
+            slow=self.config.voice_slow
+        ) if self.config.use_voice else None
 
     def _create_agent_executor(self) -> AgentExecutor:
         """Create the agent executor with tools and prompt template."""
@@ -128,6 +162,10 @@ Always be concise and clear in your responses."""),
         # Update chat history
         self.chat_history.append({"role": "user", "content": user_input})
         self.chat_history.append({"role": "assistant", "content": result["output"]})
+        
+        # Speak the response if voice is enabled
+        if self.voice:
+            await self.voice.speak(result["output"])
         
         return result["output"]
 

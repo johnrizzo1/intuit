@@ -8,6 +8,7 @@ import logging
 from typing import Optional
 from pathlib import Path
 from dotenv import load_dotenv
+import os
 
 # Load environment variables from .env file
 load_dotenv()
@@ -32,12 +33,18 @@ logger = logging.getLogger(__name__)
 app = typer.Typer(no_args_is_help=True)
 
 async def create_agent(
-    model: str = "gpt-4-turbo-preview",
+    model: str = os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini"),
     temperature: float = 0.7,
     index_filesystem: bool = False,
     filesystem_path: Optional[Path] = None,
     enable_gmail: bool = False,
-    enable_weather: bool = False
+    enable_weather: bool = False,
+    use_voice: bool = False,
+    voice_language: str = "en",
+    voice_slow: bool = False,
+    openai_api_base: Optional[str] = None,
+    openai_api_type: Optional[str] = None,
+    openai_api_version: Optional[str] = None,
 ) -> Agent:
     """
     Create and configure the Intuit agent with all tools.
@@ -49,6 +56,12 @@ async def create_agent(
         filesystem_path: Path to index (defaults to home directory)
         enable_gmail: Whether to enable Gmail integration
         enable_weather: Whether to enable weather information
+        use_voice: Whether to use voice output
+        voice_language: Language for voice output
+        voice_slow: Whether to speak slowly
+        openai_api_base: Base URL for OpenAI API
+        openai_api_type: Type of OpenAI API (openai/azure)
+        openai_api_version: API version for Azure OpenAI
         
     Returns:
         Configured agent instance
@@ -60,6 +73,12 @@ async def create_agent(
     logger.info("- Filesystem path: %s", filesystem_path)
     logger.info("- Enable Gmail: %s", enable_gmail)
     logger.info("- Enable Weather: %s", enable_weather)
+    logger.info("- Use Voice: %s", use_voice)
+    logger.info("- Voice Language: %s", voice_language)
+    logger.info("- Voice Slow: %s", voice_slow)
+    logger.info("- OpenAI API Base: %s", openai_api_base)
+    logger.info("- OpenAI API Type: %s", openai_api_type)
+    logger.info("- OpenAI API Version: %s", openai_api_version)
     
     # Initialize tools
     tools = [
@@ -91,6 +110,12 @@ async def create_agent(
     config = AgentConfig(
         model_name=model,
         temperature=temperature,
+        use_voice=use_voice,
+        voice_language=voice_language,
+        voice_slow=voice_slow,
+        openai_api_base=openai_api_base,
+        openai_api_type=openai_api_type,
+        openai_api_version=openai_api_version,
     )
     
     # Create and return agent
@@ -100,12 +125,18 @@ async def create_agent(
 @app.command()
 def chat(
     query: Optional[str] = typer.Argument(None, help="Query to process"),
-    model: str = typer.Option("gpt-4-turbo-preview", help="Model to use"),
+    model: str = typer.Option(os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini"), help="Model to use (can also be set via OPENAI_MODEL_NAME env var)"),
     temperature: float = typer.Option(0.7, help="Model temperature"),
     index: bool = typer.Option(False, "--index/--no-index", help="Enable/disable filesystem indexing"),
     index_path: Optional[Path] = typer.Option(None, help="Path to index"),
     enable_gmail: bool = typer.Option(False, help="Enable Gmail integration"),
     enable_weather: bool = typer.Option(False, help="Enable weather information"),
+    use_voice: bool = typer.Option(False, "--voice/--no-voice", help="Enable/disable voice output"),
+    voice_language: str = typer.Option("en", help="Language for voice output"),
+    voice_slow: bool = typer.Option(False, "--slow/--no-slow", help="Speak slowly"),
+    openai_api_base: Optional[str] = typer.Option(None, help="Base URL for OpenAI API"),
+    openai_api_type: Optional[str] = typer.Option(None, help="Type of OpenAI API (openai/azure)"),
+    openai_api_version: Optional[str] = typer.Option(None, help="API version for Azure OpenAI"),
     quiet: bool = typer.Option(False, help="Suppress welcome message in non-interactive mode"),
 ):
     """Start the Intuit assistant in interactive mode or process a single query."""
@@ -119,18 +150,29 @@ def chat(
         index_filesystem=index,
         filesystem_path=index_path,
         enable_gmail=enable_gmail,
-        enable_weather=enable_weather
+        enable_weather=enable_weather,
+        use_voice=use_voice,
+        voice_language=voice_language,
+        voice_slow=voice_slow,
+        openai_api_base=openai_api_base,
+        openai_api_type=openai_api_type,
+        openai_api_version=openai_api_version,
     ))
     asyncio.run(run_cli(agent, query, quiet))
 
 @app.command()
 def voice(
-    model: str = typer.Option("gpt-4-turbo-preview", help="Model to use"),
+    model: str = typer.Option(os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini"), help="Model to use (can also be set via OPENAI_MODEL_NAME env var)"),
     temperature: float = typer.Option(0.7, help="Model temperature"),
     index: bool = typer.Option(False, "--index/--no-index", help="Enable/disable filesystem indexing"),
     index_path: Optional[Path] = typer.Option(None, help="Path to index"),
     enable_gmail: bool = typer.Option(False, help="Enable Gmail integration"),
     enable_weather: bool = typer.Option(False, help="Enable weather information"),
+    voice_language: str = typer.Option("en", help="Language for voice output"),
+    voice_slow: bool = typer.Option(False, "--slow/--no-slow", help="Speak slowly"),
+    openai_api_base: Optional[str] = typer.Option(None, help="Base URL for OpenAI API"),
+    openai_api_type: Optional[str] = typer.Option(None, help="Type of OpenAI API (openai/azure)"),
+    openai_api_version: Optional[str] = typer.Option(None, help="API version for Azure OpenAI"),
 ):
     """Start the Intuit assistant in voice mode."""
     agent = asyncio.run(create_agent(
@@ -139,7 +181,13 @@ def voice(
         index_filesystem=index,
         filesystem_path=index_path,
         enable_gmail=enable_gmail,
-        enable_weather=enable_weather
+        enable_weather=enable_weather,
+        use_voice=True,  # Always enable voice in voice mode
+        voice_language=voice_language,
+        voice_slow=voice_slow,
+        openai_api_base=openai_api_base,
+        openai_api_type=openai_api_type,
+        openai_api_version=openai_api_version,
     ))
     try:
         asyncio.run(run_voice(agent))
