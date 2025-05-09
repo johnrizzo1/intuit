@@ -93,7 +93,8 @@ async def create_agent(
     if enable_weather:
         tools.append(WeatherTool())
     
-    # Initialize vector store and filesystem tool if requested
+    # Initialize vector store if requested
+    vector_store = None
     if index_filesystem:
         logger.info("Initializing vector store")
         vector_store = VectorStore()
@@ -103,8 +104,10 @@ async def create_agent(
         else:
             logger.info("Indexing home directory")
             await vector_store.index_directory(Path.home())
-        logger.info("Adding filesystem tool")
-        tools.append(FilesystemTool(vector_store=vector_store))
+    
+    # Always add filesystem tool
+    logger.info("Adding filesystem tool")
+    tools.append(FilesystemTool(vector_store=vector_store))
     
     # Create agent configuration
     config = AgentConfig(

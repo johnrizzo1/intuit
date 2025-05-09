@@ -93,18 +93,57 @@ class FilesystemTool(BaseTool):
         return await self._get_file_info(path)
     
     async def _search_files(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
-        """Search for files using vector store."""
+        """Search for files using vector store or basic file system search."""
         logger.info("Searching files with query: %s", query)
-        if not self._vector_store:
-            logger.error("Vector store not initialized")
-            raise RuntimeError("Vector store not initialized")
         
+        if self._vector_store:
+            # Use semantic search if vector store is available
+            try:
+                results = await self._vector_store.search(query, limit=limit)
+                logger.info("Found %d results using semantic search", len(results))
+                return [await self._get_file_info(result.metadata['path']) for result in results]
+            except Exception as e:
+                logger.error("Error in semantic search: %s", str(e))
+                # Fall back to basic search if semantic search fails
+                logger.info("Falling back to basic search")
+        
+        # Basic file system search
         try:
-            results = await self._vector_store.search(query, limit=limit)
-            logger.info("Found %d results", len(results))
-            return [await self._get_file_info(result.metadata['path']) for result in results]
+            # Search in current directory and subdirectories
+            path = Path(".")
+            results = []
+            
+            # Convert query to lowercase for case-insensitive search
+            query_lower = query.lower()
+            
+            # Search through all files
+            for file_path in path.rglob("*"):
+                if file_path.is_file():
+                    try:
+                        # Check if query is in filename
+                        if query_lower in file_path.name.lower():
+                            results.append(await self._get_file_info(str(file_path)))
+                            continue
+                            
+                        # Check if query is in file content
+                        try:
+                            content = file_path.read_text().lower()
+                            if query_lower in content:
+                                results.append(await self._get_file_info(str(file_path)))
+                        except UnicodeDecodeError:
+                            # Skip binary files
+                            continue
+                            
+                        if len(results) >= limit:
+                            break
+                    except Exception as e:
+                        logger.warning("Error processing file %s: %s", file_path, str(e))
+                        continue
+            
+            logger.info("Found %d results using basic search", len(results))
+            return results
         except Exception as e:
-            logger.error("Error searching files: %s", str(e))
+            logger.error("Error in basic search: %s", str(e))
             raise
     
     async def run(

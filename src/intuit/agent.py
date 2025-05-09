@@ -89,6 +89,7 @@ class Agent:
         for tool in self.tools:
             logger.info("- Tool: %s (%s)", tool.name, tool.description)
         
+        # Create the prompt template
         prompt = ChatPromptTemplate.from_messages([
             ("system", """You are Intuit, a helpful personal assistant. 
 You have access to various tools to help the user:
@@ -162,33 +163,208 @@ When using the web search tool, you MUST:
 3. Format and present the results to the user
 4. Do not respond with placeholder messages like "I will search..." or "Searching..."
 
+IMPORTANT: You MUST use the function calling format to use tools. For example:
+To use the web search tool:
+{{
+    "name": "web_search",
+    "arguments": {{
+        "query": "your search query here",
+        "max_results": 5
+    }}
+}}
+
+To use the filesystem tool:
+{{
+    "name": "filesystem",
+    "arguments": {{
+        "action": "search",
+        "path": ".",
+        "query": "your search query here"
+    }}
+}}
+
+To use the weather tool:
+{{
+    "name": "weather",
+    "arguments": {{
+        "location": "location name here"
+    }}
+}}
+
 Always be concise and clear in your responses."""),
             MessagesPlaceholder(variable_name="chat_history"),
             ("human", "{input}"),
             MessagesPlaceholder(variable_name="agent_scratchpad"),
         ])
 
-        functions = [convert_to_openai_function(t) for t in self.tools]
-        logger.info("Converted %d tools to OpenAI functions", len(functions))
+        # Create a tool map for easy lookup
+        tool_map = {tool.name: tool for tool in self.tools}
         
-        agent = RunnableParallel({
-            "input": RunnablePassthrough(),
-            "chat_history": lambda x: [
-                HumanMessage(content=msg["content"]) if msg["role"] == "user"
-                else AIMessage(content=msg["content"])
-                for msg in x["chat_history"]
-            ],
-            "agent_scratchpad": lambda x: format_to_openai_function_messages(
-                x["intermediate_steps"]
-            ),
-        }) | prompt | self.llm | OpenAIFunctionsAgentOutputParser()
+        # Create a function to handle tool execution
+        async def execute_tool(tool_name: str, tool_args: Dict[str, Any]) -> str:
+            """Execute a tool and return its result."""
+            tool = tool_map.get(tool_name)
+            if not tool:
+                return f"Error: Tool '{tool_name}' not found"
+            
+            try:
+                # Filter out any unexpected arguments
+                if tool_name == "filesystem":
+                    expected_args = {"action", "path", "query", "content"}
+                    filtered_args = {k: v for k, v in tool_args.items() if k in expected_args}
+                    result = await tool._arun(**filtered_args)
+                elif tool_name == "web_search":
+                    expected_args = {"query", "max_results"}
+                    filtered_args = {k: v for k, v in tool_args.items() if k in expected_args}
+                    result = await tool._arun(**filtered_args)
+                elif tool_name == "weather":
+                    expected_args = {"location"}
+                    filtered_args = {k: v for k, v in tool_args.items() if k in expected_args}
+                    result = await tool._arun(**filtered_args)
+                else:
+                    result = await tool._arun(**tool_args)
+                return str(result)
+            except Exception as e:
+                logger.error("Error executing tool %s: %s", tool_name, str(e))
+                return f"Error executing {tool_name}: {str(e)}"
 
+        # Convert tools to OpenAI functions
+        functions = []
+        for tool in self.tools:
+            if tool.name == "web_search":
+                functions.append({
+                    "name": "web_search",
+                    "description": tool.description,
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "The search query"
+                            },
+                            "max_results": {
+                                "type": "integer",
+                                "description": "Maximum number of results to return",
+                                "default": 5
+                            }
+                        },
+                        "required": ["query"]
+                    }
+                })
+            elif tool.name == "filesystem":
+                functions.append({
+                    "name": "filesystem",
+                    "description": tool.description,
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "action": {
+                                "type": "string",
+                                "enum": ["search", "list", "read", "write", "info"],
+                                "description": "The action to perform"
+                            },
+                            "path": {
+                                "type": "string",
+                                "description": "The path to operate on"
+                            },
+                            "query": {
+                                "type": "string",
+                                "description": "The search query (for search action)"
+                            },
+                            "content": {
+                                "type": "string",
+                                "description": "Content to write (for write action)"
+                            }
+                        },
+                        "required": ["action", "path"]
+                    }
+                })
+            elif tool.name == "weather":
+                functions.append({
+                    "name": "weather",
+                    "description": tool.description,
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "location": {
+                                "type": "string",
+                                "description": "The location name (e.g., 'London, UK' or 'New York, NY')"
+                            }
+                        },
+                        "required": ["location"]
+                    }
+                })
+        
+        logger.info("Converted %d tools to OpenAI functions", len(functions))
+
+        # Create the agent with tool execution
+        agent = (
+            {
+                "input": lambda x: x["input"],
+                "chat_history": lambda x: [
+                    HumanMessage(content=msg["content"]) if msg["role"] == "user"
+                    else AIMessage(content=msg["content"])
+                    for msg in x["chat_history"]
+                ],
+                "agent_scratchpad": lambda x: format_to_openai_function_messages(
+                    x["intermediate_steps"]
+                ),
+            }
+            | prompt
+            | self.llm.bind(functions=functions)
+            | OpenAIFunctionsAgentOutputParser()
+        )
+
+        # Create wrapped tools for the executor
+        from langchain.tools import StructuredTool
+        wrapped_tools = []
+        for tool in self.tools:
+            if tool.name == "filesystem":
+                wrapped_tools.append(
+                    StructuredTool.from_function(
+                        func=lambda t=tool, **kwargs: asyncio.run(t._arun(**kwargs)),
+                        name=tool.name,
+                        description=tool.description,
+                        args_schema={
+                            "action": str,
+                            "path": str,
+                            "query": str,
+                            "content": str
+                        }
+                    )
+                )
+            elif tool.name == "web_search":
+                wrapped_tools.append(
+                    StructuredTool.from_function(
+                        func=lambda t=tool, **kwargs: asyncio.run(t._arun(**kwargs)),
+                        name=tool.name,
+                        description=tool.description,
+                        args_schema={
+                            "query": str,
+                            "max_results": int
+                        }
+                    )
+                )
+            elif tool.name == "weather":
+                wrapped_tools.append(
+                    StructuredTool.from_function(
+                        func=lambda t=tool, **kwargs: asyncio.run(t._arun(**kwargs)),
+                        name=tool.name,
+                        description=tool.description,
+                        args_schema={
+                            "location": str
+                        }
+                    )
+                )
+
+        # Create the agent executor with the wrapped tools
         return AgentExecutor(
             agent=agent,
-            tools=self.tools,
+            tools=wrapped_tools,
             verbose=True,
             handle_parsing_errors=True,
             max_iterations=3,
+            return_intermediate_steps=True,
         )
 
     async def process_input(self, user_input: str) -> str:
@@ -216,15 +392,36 @@ Always be concise and clear in your responses."""),
             
             logger.info("Agent executor result: %s", result)
             
+            # Extract the output and intermediate steps
+            output = result.get("output", "")
+            intermediate_steps = result.get("intermediate_steps", [])
+            
+            # If we have intermediate steps, format them into the response
+            if intermediate_steps:
+                formatted_steps = []
+                for step in intermediate_steps:
+                    if isinstance(step, tuple) and len(step) == 2:
+                        action, observation = step
+                        if isinstance(action, dict) and "name" in action and "arguments" in action:
+                            tool_name = action["name"]
+                            tool_args = action["arguments"]
+                            formatted_steps.append(f"Tool: {tool_name}")
+                            formatted_steps.append(f"Arguments: {tool_args}")
+                            formatted_steps.append(f"Result: {observation}")
+                            formatted_steps.append("---")
+                
+                if formatted_steps:
+                    output = "\n".join(formatted_steps)
+            
             # Update chat history
             self.chat_history.append({"role": "user", "content": user_input})
-            self.chat_history.append({"role": "assistant", "content": result["output"]})
+            self.chat_history.append({"role": "assistant", "content": output})
             
             # Speak the response if voice is enabled
             if self.voice:
-                await self.voice.speak(result["output"])
+                await self.voice.speak(output)
             
-            return result["output"]
+            return output
         except Exception as e:
             logger.error("Error processing input: %s", str(e))
             return f"Error: {str(e)}"

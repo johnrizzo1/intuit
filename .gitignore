@@ -9,7 +9,7 @@ devenv.local.nix
 .pre-commit-config.yaml
 example_data/
 
-.chroma/*
+.chroma/
 
 .env
 .chroma/chroma.sqlite3
