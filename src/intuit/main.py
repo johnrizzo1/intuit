@@ -7,6 +7,7 @@ import sys
 import logging
 from typing import Optional
 from pathlib import Path
+from datetime import datetime # Import datetime
 from dotenv import load_dotenv
 import os
 
@@ -18,9 +19,13 @@ from .tools.web_search import WebSearchTool
 from .tools.gmail import GmailTool
 from .tools.weather import WeatherTool
 from .tools.filesystem import FilesystemTool
+from .tools.calendar import CalendarTool # Import CalendarTool
+from .tools.notes import NotesTool # Import NotesTool
+from .tools.reminders import RemindersTool # Import RemindersTool
 from .vector_store.indexer import VectorStore
 from .ui.cli import run_cli
 from .ui.voice import run_voice
+from .reminders_service import ReminderService # Import ReminderService
 
 # Set up logging
 logging.basicConfig(
@@ -31,6 +36,92 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = typer.Typer(no_args_is_help=True)
+
+# Create Typer instances for each tool
+calendar_app = typer.Typer(name="calendar", help="Manage calendar events")
+notes_app = typer.Typer(name="notes", help="Manage notes")
+reminders_app = typer.Typer(name="reminders", help="Manage reminders")
+
+# Mount tool Typer instances onto the main app
+app.add_typer(calendar_app)
+app.add_typer(notes_app)
+app.add_typer(reminders_app)
+
+# Define commands for Calendar tool
+@calendar_app.command()
+def add(event: str):
+    """Adds a new calendar event."""
+    agent = asyncio.run(create_agent()) # Create agent with default config
+    print(agent.tools[1].add_event(event)) # Assuming CalendarTool is the second tool
+
+@calendar_app.command()
+def list():
+    """Lists all calendar events."""
+    agent = asyncio.run(create_agent())
+    print(agent.tools[1].list_events())
+
+@calendar_app.command()
+def search(keyword: str):
+    """Searches calendar events for a keyword."""
+    agent = asyncio.run(create_agent())
+    print(agent.tools[1].search_events(keyword))
+
+@calendar_app.command()
+def delete(filename: str):
+    """Deletes a calendar event by filename."""
+    agent = asyncio.run(create_agent())
+    print(agent.tools[1].delete_event(filename))
+
+# Define commands for Notes tool
+@notes_app.command()
+def add(content: str):
+    """Adds a new note."""
+    agent = asyncio.run(create_agent()) # Create agent with default config
+    print(agent.tools[2].add_note(content)) # Assuming NotesTool is the third tool
+
+@notes_app.command()
+def list():
+    """Lists all notes."""
+    agent = asyncio.run(create_agent())
+    print(agent.tools[2].list_notes())
+
+@notes_app.command()
+def search(keyword: str):
+    """Searches notes for a keyword."""
+    agent = asyncio.run(create_agent())
+    print(agent.tools[2].search_notes(keyword))
+
+@notes_app.command()
+def delete(id: str):
+    """Deletes a note by ID."""
+    agent = asyncio.run(create_agent())
+    print(agent.tools[2].delete_note(id))
+
+# Define commands for Reminders tool
+@reminders_app.command()
+def add(content: str, time: Optional[datetime] = typer.Option(None, help="Optional reminder time (ISO 8601 format)")):
+    """Adds a new reminder."""
+    agent = asyncio.run(create_agent()) # Create agent with default config
+    print(agent.tools[3].add_reminder(content, time)) # Assuming RemindersTool is the fourth tool
+
+@reminders_app.command()
+def list():
+    """Lists all reminders."""
+    agent = asyncio.run(create_agent())
+    print(agent.tools[3].list_reminders())
+
+@reminders_app.command()
+def search(keyword: str):
+    """Searches reminders for a keyword."""
+    agent = asyncio.run(create_agent())
+    print(agent.tools[3].search_reminders(keyword))
+
+@reminders_app.command()
+def delete(id: str):
+    """Deletes a reminder by ID."""
+    agent = asyncio.run(create_agent())
+    print(agent.tools[3].delete_reminder(id))
+
 
 async def create_agent(
     model: str = os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini"),
@@ -83,6 +174,9 @@ async def create_agent(
     # Initialize tools
     tools = [
         WebSearchTool(),
+        CalendarTool(), # Add CalendarTool
+        NotesTool(), # Add NotesTool
+        RemindersTool(), # Add RemindersTool
     ]
     
     # Add Gmail tool if enabled
@@ -123,8 +217,17 @@ async def create_agent(
     
     # Create and return agent
     logger.info("Creating agent with %d tools", len(tools))
-    return Agent(tools=tools, config=config)
 
+    # Initialize reminder service only if voice is enabled
+    reminder_service = None
+    if config.use_voice:
+        reminders_tool_instance = next((tool for tool in tools if isinstance(tool, RemindersTool)), None)
+        voice_output_instance = VoiceOutput(language=config.voice_language, slow=config.voice_slow)
+        reminder_service = ReminderService(reminders_tool=reminders_tool_instance, voice_output=voice_output_instance)
+
+    return Agent(tools=tools, config=config, reminder_service=reminder_service) # Pass reminder_service to Agent
+
+@app.command()
 @app.command()
 def chat(
     query: Optional[str] = typer.Argument(None, help="Query to process"),
@@ -193,9 +296,14 @@ def voice(
         openai_api_version=openai_api_version,
     ))
     try:
+        if agent.reminder_service: # Start reminder service if initialized
+            agent.reminder_service.start()
         asyncio.run(run_voice(agent))
     except KeyboardInterrupt:
         print("\nStopping voice interface...")
+    finally:
+        if agent.reminder_service: # Stop reminder service on exit
+            agent.reminder_service.stop()
 
 def main():
     """Main entry point."""

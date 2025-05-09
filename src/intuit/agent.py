@@ -6,6 +6,7 @@ import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional, Dict, Any
+from datetime import datetime # Import datetime
 from pydantic import BaseModel, Field
 from langchain.agents import AgentExecutor
 from langchain.agents.format_scratchpad import format_to_openai_function_messages
@@ -17,6 +18,10 @@ from langchain_core.runnables import RunnableParallel, RunnablePassthrough
 from langchain_core.messages import AIMessage, HumanMessage
 
 from .tools.base import BaseTool
+from .tools.calendar import CalendarTool # Import CalendarTool
+from .tools.notes import NotesTool # Import NotesTool
+from .tools.reminders import RemindersTool # Import RemindersTool
+from .reminders_service import ReminderService # Import ReminderService
 from .voice import VoiceOutput
 
 # Set up logging
@@ -32,7 +37,7 @@ class AgentConfig(BaseModel):
     use_voice: bool = Field(default=False)  # Whether to use voice output
     voice_language: str = Field(default="en")  # Language for voice output
     voice_slow: bool = Field(default=False)  # Whether to speak slowly
-    
+
     # OpenAI provider configuration
     openai_api_base: Optional[str] = Field(default=None)
     openai_api_type: Optional[str] = Field(default=None)
@@ -46,14 +51,16 @@ class Agent:
         self,
         tools: List[BaseTool],
         config: Optional[AgentConfig] = None,
+        reminder_service: Optional[ReminderService] = None, # Add reminder_service parameter
     ):
         self.config = config or AgentConfig()
-        
+        self.reminder_service = reminder_service # Store reminder_service
+
         # Get OpenAI configuration from environment or config
         openai_api_base = self.config.openai_api_base or os.getenv("OPENAI_API_BASE")
         openai_api_type = self.config.openai_api_type or os.getenv("OPENAI_API_TYPE")
         openai_api_version = self.config.openai_api_version or os.getenv("OPENAI_API_VERSION")
-        
+
         # Configure OpenAI client
         openai_kwargs = {
             "model_name": self.config.model_name,
@@ -61,7 +68,7 @@ class Agent:
             "max_tokens": self.config.max_tokens,
             "streaming": self.config.streaming,
         }
-        
+
         # Add provider-specific configuration
         if openai_api_base:
             openai_kwargs["openai_api_base"] = openai_api_base
@@ -69,14 +76,19 @@ class Agent:
             openai_kwargs["openai_api_type"] = openai_api_type
         if openai_api_version:
             openai_kwargs["openai_api_version"] = openai_api_version
-            
+
         self.llm = ChatOpenAI(**openai_kwargs)
-        
+
         self.tools = tools
         self.agent_executor = self._create_agent_executor()
         self.chat_history: List[Dict[str, Any]] = []
-        self.thread_pool = ThreadPoolExecutor(max_workers=self.config.max_workers)
-        
+        self.thread_pool: Optional[ThreadPoolExecutor] = None # Initialize thread_pool to None
+        try:
+            self.thread_pool = ThreadPoolExecutor(max_workers=self.config.max_workers)
+        except Exception as e:
+            logger.error(f"Failed to initialize thread pool: {e}")
+            # Continue without thread pool, process_input will handle it
+
         # Initialize voice output if enabled
         self.voice = VoiceOutput(
             language=self.config.voice_language,
@@ -88,16 +100,19 @@ class Agent:
         logger.info("Creating agent executor with %d tools:", len(self.tools))
         for tool in self.tools:
             logger.info("- Tool: %s (%s)", tool.name, tool.description)
-        
+
         # Create the prompt template
         prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are Intuit, a helpful personal assistant. 
+            ("system", """You are Intuit, a helpful personal assistant.
 You have access to various tools to help the user:
 
 1. Web search for online information
 2. Filesystem operations for searching, reading, and managing files
 3. Gmail integration for email management (when enabled)
 4. Weather information (when enabled)
+5. Calendar management for adding, listing, searching, and deleting events
+6. Notes management for adding, listing, searching, and deleting notes
+7. Reminders management for adding, listing, searching, and deleting reminders, including setting a specific time.
 
 IMPORTANT: When users ask about their Gmail, you MUST use the gmail tool. The gmail tool provides access to read and manage email messages.
 
@@ -176,7 +191,7 @@ For example, if a user asks "What's the latest news about AI?", you should:
 1. Use the web search tool with query="latest news about artificial intelligence"
 2. When you get the results, format them like this:
    Search Results for "[query]":
-   
+
    [For each result]
    - [title]
      [snippet]
@@ -230,6 +245,40 @@ To use the weather tool:
     }}
 }}
 
+To use the calendar tool:
+{{
+   "name": "calendar",
+   "arguments": {{
+       "action": "add" | "list" | "search" | "delete",
+       "event": "details of the calendar event (for add action)",
+       "keyword": "keyword to search for (for search action)",
+       "filename": "filename of the event to delete (for delete action)"
+   }}
+}}
+
+To use the notes tool:
+{{
+   "name": "notes",
+   "arguments": {{
+       "action": "add" | "list" | "search" | "delete",
+       "content": "content of the note (for add action)",
+       "keyword": "keyword to search for (for search action)",
+       "id": "ID of the note to delete (for delete action)"
+   }}
+}}
+
+To use the reminders tool:
+{{
+   "name": "reminders",
+   "arguments": {{
+       "action": "add" | "list" | "search" | "delete",
+       "content": "content of the reminder (for add action)",
+       "reminder_time": "optional reminder time in ISO 8601 format (e.g., '2025-12-31T23:59:59') (for add action)",
+       "keyword": "keyword to search for (for search action)",
+       "id": "ID of the reminder to delete (for delete action)"
+   }}
+}}
+
 Always be concise and clear in your responses."""),
             MessagesPlaceholder(variable_name="chat_history"),
             ("human", "{input}"),
@@ -238,7 +287,7 @@ Always be concise and clear in your responses."""),
 
         # Create a tool map for easy lookup
         tool_map = {tool.name: tool for tool in self.tools}
-        
+
         # Create the execute_tool function
         async def execute_tool(tool_name: str, tool_args: Dict[str, Any]) -> str:
             """Execute a tool and return its result."""
@@ -246,7 +295,7 @@ Always be concise and clear in your responses."""),
                 tool = tool_map.get(tool_name)
                 if not tool:
                     return f"Error: Tool '{tool_name}' not found"
-                
+
                 # Filter arguments based on the tool
                 if tool_name == "filesystem":
                     expected_args = {"action", "path", "query", "content", "recursive", "limit"}
@@ -256,12 +305,18 @@ Always be concise and clear in your responses."""),
                     expected_args = {"location"}
                 elif tool_name == "gmail":
                     expected_args = {"query", "limit"}
+                elif tool.name == "calendar": # Add calendar tool expected args
+                     expected_args = {"action", "event", "keyword", "filename"}
+                elif tool.name == "notes": # Add notes tool expected args
+                     expected_args = {"action", "content", "keyword", "id"}
+                elif tool.name == "reminders": # Add reminders tool expected args
+                     expected_args = {"action", "content", "reminder_time", "keyword", "id"}
                 else:
                     expected_args = set()
-                
+
                 # Filter out unexpected arguments
                 filtered_args = {k: v for k, v in tool_args.items() if k in expected_args}
-                
+
                 # Execute the tool
                 result = await tool._arun(**filtered_args)
                 return str(result)
@@ -355,7 +410,95 @@ Always be concise and clear in your responses."""),
                         "required": ["query"]
                     }
                 })
-        
+            elif tool.name == "calendar": # Add calendar tool function definition
+                functions.append({
+                    "name": "calendar",
+                    "description": tool.description,
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "action": {
+                                "type": "string",
+                                "enum": ["add", "list", "search", "delete"],
+                                "description": "The action to perform (add, list, search, or delete)"
+                            },
+                            "event": {
+                                "type": "string",
+                                "description": "Details of the calendar event (required for add action)"
+                            },
+                            "keyword": {
+                                "type": "string",
+                                "description": "Keyword to search for (for search action)"
+                            },
+                            "filename": {
+                                "type": "string",
+                                "description": "Filename of the event to delete (required for delete action)"
+                            }
+                        },
+                        "required": ["action"]
+                    }
+                })
+            elif tool.name == "notes": # Add notes tool function definition
+                functions.append({
+                    "name": "notes",
+                    "description": tool.description,
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "action": {
+                                "type": "string",
+                                "enum": ["add", "list", "search", "delete"],
+                                "description": "The action to perform (add, list, search, or delete)"
+                            },
+                            "content": {
+                                "type": "string",
+                                "description": "Content of the note (required for add action)"
+                            },
+                            "keyword": {
+                                "type": "string",
+                                "description": "Keyword to search for (for search action)"
+                            },
+                            "id": {
+                                "type": "string",
+                                "description": "ID of the note to delete (required for delete action)"
+                            }
+                        },
+                        "required": ["action"]
+                    }
+                })
+            elif tool.name == "reminders": # Add reminders tool function definition
+                functions.append({
+                    "name": "reminders",
+                    "description": tool.description,
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "action": {
+                                "type": "string",
+                                "enum": ["add", "list", "search", "delete"],
+                                "description": "The action to perform (add, list, search, or delete)"
+                            },
+                            "content": {
+                                "type": "string",
+                                "description": "Content of the reminder (required for add action)"
+                            },
+                            "reminder_time": {
+                                "type": "string",
+                                "description": "Optional reminder time in ISO 8601 format (e.g., '2025-12-31T23:59:59') (for add action)"
+                            },
+                            "keyword": {
+                                "type": "string",
+                                "description": "Keyword to search for (for search action)"
+                            },
+                            "id": {
+                                "type": "string",
+                                "description": "ID of the reminder to delete (for delete action)"
+                            }
+                        },
+                        "required": ["action"]
+                    }
+                })
+
         logger.info("Converted %d tools to OpenAI functions", len(functions))
 
         # Create the agent with tool execution
@@ -429,6 +572,49 @@ Always be concise and clear in your responses."""),
                         }
                     )
                 )
+            elif tool.name == "calendar": # Add calendar tool to wrapped_tools
+                wrapped_tools.append(
+                    StructuredTool.from_function(
+                        func=lambda t=tool, **kwargs: asyncio.run(t._arun(**kwargs)),
+                        name=tool.name,
+                        description=tool.description,
+                        args_schema={
+                            "action": str,
+                            "event": Optional[str],
+                            "keyword": Optional[str],
+                            "filename": Optional[str]
+                        }
+                    )
+                )
+            elif tool.name == "notes": # Add notes tool to wrapped_tools
+                wrapped_tools.append(
+                    StructuredTool.from_function(
+                        func=lambda t=tool, **kwargs: asyncio.run(t._arun(**kwargs)),
+                        name=tool.name,
+                        description=tool.description,
+                        args_schema={
+                            "action": str,
+                            "content": Optional[str],
+                            "keyword": Optional[str],
+                            "id": Optional[str]
+                        }
+                    )
+                )
+            elif tool.name == "reminders": # Add reminders tool to wrapped_tools
+                wrapped_tools.append(
+                    StructuredTool.from_function(
+                        func=lambda t=tool, **kwargs: asyncio.run(t._arun(**kwargs)),
+                        name=tool.name,
+                        description=tool.description,
+                        args_schema={
+                            "action": str,
+                            "content": Optional[str],
+                            "reminder_time": Optional[datetime],
+                            "keyword": Optional[str],
+                            "id": Optional[str]
+                        }
+                    )
+                )
 
         # Create the agent executor with the wrapped tools
         return AgentExecutor(
@@ -443,15 +629,15 @@ Always be concise and clear in your responses."""),
     async def process_input(self, user_input: str) -> str:
         """
         Process user input and return a response.
-        
+
         Args:
             user_input: The user's input text
-            
+
         Returns:
             The agent's response
         """
         logger.info("Processing input: %s", user_input)
-        
+
         # Use thread pool for I/O-bound tasks
         loop = asyncio.get_event_loop()
         try:
@@ -462,13 +648,13 @@ Always be concise and clear in your responses."""),
                     "chat_history": self.chat_history,
                 })
             )
-            
+
             logger.info("Agent executor result: %s", result)
-            
+
             # Extract the output and intermediate steps
             output = result.get("output", "")
             intermediate_steps = result.get("intermediate_steps", [])
-            
+
             # If we have intermediate steps, format them into the response
             if intermediate_steps:
                 formatted_steps = []
@@ -482,18 +668,18 @@ Always be concise and clear in your responses."""),
                             formatted_steps.append(f"Arguments: {tool_args}")
                             formatted_steps.append(f"Result: {observation}")
                             formatted_steps.append("---")
-                
+
                 if formatted_steps:
                     output = "\n".join(formatted_steps)
-            
+
             # Update chat history
             self.chat_history.append({"role": "user", "content": user_input})
             self.chat_history.append({"role": "assistant", "content": output})
-            
+
             # Speak the response if voice is enabled
             if self.voice:
                 await self.voice.speak(output)
-            
+
             return output
         except Exception as e:
             logger.error("Error processing input: %s", str(e))
@@ -501,22 +687,11 @@ Always be concise and clear in your responses."""),
 
     async def run(self, user_input: str) -> str:
         """
-        Run the agent on a single input.
-        This is a wrapper around process_input for compatibility with the CLI interface.
-        
-        Args:
-            user_input: The user's input text
-            
-        Returns:
-            The agent's response
+        Run the agent with the given input.
         """
         return await self.process_input(user_input)
 
-    def clear_history(self) -> None:
-        """Clear the chat history."""
-        self.chat_history = []
-
     def __del__(self):
-        """Clean up thread pool on deletion."""
-        if hasattr(self, 'thread_pool'):
-            self.thread_pool.shutdown(wait=False) 
+        """Shutdown the thread pool executor if it was initialized."""
+        if self.thread_pool:
+            self.thread_pool.shutdown(wait=False)
