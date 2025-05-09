@@ -24,23 +24,28 @@ Intuit is a flexible, agentic personal assistant that can be accessed via CLI, v
 ## Setup
 
 1. Clone the repository:
+
    ```bash
    git clone https://github.com/yourusername/intuit.git
    cd intuit
    ```
 
 2. Set up the development environment:
+
    ```bash
    devenv up
    ```
 
 3. Create a `.env` file with your API keys:
+
    ```bash
    OPENAI_API_KEY=your_openai_key
    GOOGLE_CLIENT_ID=your_google_client_id
    GOOGLE_CLIENT_SECRET=your_google_client_secret
    WEATHER_API_KEY=your_weather_api_key
    ```
+
+   For gmail to work you need to download your gmail credentials
 
 4. Install dependencies:
 

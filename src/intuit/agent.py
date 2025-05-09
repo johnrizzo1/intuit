@@ -99,6 +99,36 @@ You have access to various tools to help the user:
 3. Gmail integration for email management (when enabled)
 4. Weather information (when enabled)
 
+IMPORTANT: When users ask about their Gmail, you MUST use the gmail tool. The gmail tool provides access to read and manage email messages.
+
+To use the gmail tool, use these parameters:
+- query: the search query for messages (e.g., "is:unread", "from:example@gmail.com", "subject:meeting", "has:attachment")
+- limit: maximum number of messages to return (default: 5)
+
+For example:
+1. If a user asks "How many unread emails do I have?", use:
+   query="is:unread"
+   limit=5
+
+2. If a user asks "Show me my recent emails from John", use:
+   query="from:john@gmail.com"
+   limit=5
+
+3. If a user asks "Find emails with attachments", use:
+   query="has:attachment"
+   limit=5
+
+When you get the response, format it like this:
+Found [number] messages:
+
+[For each message]
+From: [sender]
+Subject: [subject]
+Date: [date]
+[Preview of content]
+
+If there's an error, explain what went wrong and suggest what the user can do.
+
 IMPORTANT: When users ask about finding files or searching content, you MUST use the filesystem tool with the 'search' action. The filesystem tool has semantic search capabilities through its vector store.
 
 To search for files, use the filesystem tool with these parameters:
@@ -183,6 +213,15 @@ To use the filesystem tool:
     }}
 }}
 
+To use the gmail tool:
+{{
+    "name": "gmail",
+    "arguments": {{
+        "query": "your search query here",
+        "limit": 5
+    }}
+}}
+
 To use the weather tool:
 {{
     "name": "weather",
@@ -200,29 +239,31 @@ Always be concise and clear in your responses."""),
         # Create a tool map for easy lookup
         tool_map = {tool.name: tool for tool in self.tools}
         
-        # Create a function to handle tool execution
+        # Create the execute_tool function
         async def execute_tool(tool_name: str, tool_args: Dict[str, Any]) -> str:
             """Execute a tool and return its result."""
-            tool = tool_map.get(tool_name)
-            if not tool:
-                return f"Error: Tool '{tool_name}' not found"
-            
             try:
-                # Filter out any unexpected arguments
+                tool = tool_map.get(tool_name)
+                if not tool:
+                    return f"Error: Tool '{tool_name}' not found"
+                
+                # Filter arguments based on the tool
                 if tool_name == "filesystem":
-                    expected_args = {"action", "path", "query", "content"}
-                    filtered_args = {k: v for k, v in tool_args.items() if k in expected_args}
-                    result = await tool._arun(**filtered_args)
+                    expected_args = {"action", "path", "query", "content", "recursive", "limit"}
                 elif tool_name == "web_search":
                     expected_args = {"query", "max_results"}
-                    filtered_args = {k: v for k, v in tool_args.items() if k in expected_args}
-                    result = await tool._arun(**filtered_args)
                 elif tool_name == "weather":
                     expected_args = {"location"}
-                    filtered_args = {k: v for k, v in tool_args.items() if k in expected_args}
-                    result = await tool._arun(**filtered_args)
+                elif tool_name == "gmail":
+                    expected_args = {"query", "limit"}
                 else:
-                    result = await tool._arun(**tool_args)
+                    expected_args = set()
+                
+                # Filter out unexpected arguments
+                filtered_args = {k: v for k, v in tool_args.items() if k in expected_args}
+                
+                # Execute the tool
+                result = await tool._arun(**filtered_args)
                 return str(result)
             except Exception as e:
                 logger.error("Error executing tool %s: %s", tool_name, str(e))
@@ -294,6 +335,26 @@ Always be concise and clear in your responses."""),
                         "required": ["location"]
                     }
                 })
+            elif tool.name == "gmail":
+                functions.append({
+                    "name": "gmail",
+                    "description": tool.description,
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "The search query for messages (e.g., 'is:unread', 'from:example@gmail.com', 'subject:meeting', 'has:attachment')"
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "description": "Maximum number of messages to return",
+                                "default": 5
+                            }
+                        },
+                        "required": ["query"]
+                    }
+                })
         
         logger.info("Converted %d tools to OpenAI functions", len(functions))
 
@@ -353,6 +414,18 @@ Always be concise and clear in your responses."""),
                         description=tool.description,
                         args_schema={
                             "location": str
+                        }
+                    )
+                )
+            elif tool.name == "gmail":
+                wrapped_tools.append(
+                    StructuredTool.from_function(
+                        func=lambda t=tool, **kwargs: asyncio.run(t._arun(**kwargs)),
+                        name=tool.name,
+                        description=tool.description,
+                        args_schema={
+                            "query": str,
+                            "limit": int
                         }
                     )
                 )
