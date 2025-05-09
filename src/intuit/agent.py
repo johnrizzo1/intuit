@@ -111,7 +111,27 @@ After getting search results, you should:
 2. Summarize the content for the user
 3. Provide specific quotes or references when relevant
 
-DO NOT suggest manual commands or alternative search methods. Always use the filesystem tool for file searches.
+IMPORTANT: When users ask about weather, you MUST use the weather tool. The weather tool provides current conditions and forecasts for any location.
+
+To get weather information, use the weather tool with these parameters:
+- location: the name of the location (e.g., "London, UK" or "New York, NY")
+
+For example, if a user asks "What's the weather like in Charlotte?", you should:
+1. Use the weather tool with location="Charlotte, NC"
+2. When you get the response, format it like this:
+   Current Weather in [Location]:
+   - Temperature: [temp]°C
+   - Conditions: [description]
+   - Humidity: [humidity]%
+   - Wind Speed: [wind_speed] m/s
+
+   Forecast:
+   [For each forecast item]
+   - [time]: [temp]°C, [description]
+
+3. If there's an error, explain what went wrong and suggest what the user can do.
+
+DO NOT suggest manual commands or alternative search methods. Always use the appropriate tool for the task.
 
 Always be concise and clear in your responses."""),
             MessagesPlaceholder(variable_name="chat_history"),

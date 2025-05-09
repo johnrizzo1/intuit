@@ -13,7 +13,7 @@ class WeatherTool(BaseTool):
     
     name: str = Field(default="weather")
     description: str = Field(
-        default="Get current weather and forecast information for a location."
+        default="Get current weather and forecast information for a location. Input should be a location name (e.g., 'London, UK' or 'New York, NY')."
     )
     
     _api_key: str = PrivateAttr(default=None)
@@ -24,10 +24,15 @@ class WeatherTool(BaseTool):
         self._api_key = os.getenv("WEATHER_API_KEY")
         if not self._api_key:
             raise ValueError("WEATHER_API_KEY environment variable is not set")
-        self._client = aiohttp.ClientSession()
+    
+    async def _ensure_client(self):
+        """Ensure the aiohttp client session exists."""
+        if self._client is None or self._client.closed:
+            self._client = aiohttp.ClientSession()
     
     async def _get_location_coords(self, location: str) -> Optional[Tuple[float, float]]:
         """Get coordinates for a location."""
+        await self._ensure_client()
         url = f"http://api.openweathermap.org/geo/1.0/direct"
         params = {
             "q": location,
@@ -43,6 +48,7 @@ class WeatherTool(BaseTool):
     
     async def _get_weather_data(self, lat: float, lon: float) -> Dict[str, Any]:
         """Get current weather data."""
+        await self._ensure_client()
         url = "http://api.openweathermap.org/data/2.5/weather"
         params = {
             "lat": lat,
@@ -56,6 +62,7 @@ class WeatherTool(BaseTool):
     
     async def _get_forecast(self, lat: float, lon: float) -> Dict[str, Any]:
         """Get weather forecast."""
+        await self._ensure_client()
         url = "http://api.openweathermap.org/data/2.5/forecast"
         params = {
             "lat": lat,
@@ -67,7 +74,7 @@ class WeatherTool(BaseTool):
         async with self._client.get(url, params=params) as response:
             return await response.json()
     
-    async def run(self, location: str) -> Dict[str, Any]:
+    async def _arun(self, location: str) -> Dict[str, Any]:
         """
         Get weather information for a location.
         
@@ -89,6 +96,10 @@ class WeatherTool(BaseTool):
             current = await self._get_weather_data(lat, lon)
             forecast = await self._get_forecast(lat, lon)
             
+            # Close the client session after we're done
+            if self._client and not self._client.closed:
+                await self._client.close()
+            
             return {
                 "location": location,
                 "current": {
@@ -107,13 +118,17 @@ class WeatherTool(BaseTool):
                 ]
             }
         except Exception as e:
+            # Ensure client is closed even if there's an error
+            if self._client and not self._client.closed:
+                await self._client.close()
             return {"error": str(e)}
     
     async def __aenter__(self):
         """Async context manager entry."""
+        await self._ensure_client()
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit."""
-        if self._client:
+        if self._client and not self._client.closed:
             await self._client.close() 
