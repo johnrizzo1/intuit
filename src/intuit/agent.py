@@ -85,6 +85,10 @@ class Agent:
 
     def _create_agent_executor(self) -> AgentExecutor:
         """Create the agent executor with tools and prompt template."""
+        logger.info("Creating agent executor with %d tools:", len(self.tools))
+        for tool in self.tools:
+            logger.info("- Tool: %s (%s)", tool.name, tool.description)
+        
         prompt = ChatPromptTemplate.from_messages([
             ("system", """You are Intuit, a helpful personal assistant. 
 You have access to various tools to help the user:
@@ -131,7 +135,32 @@ For example, if a user asks "What's the weather like in Charlotte?", you should:
 
 3. If there's an error, explain what went wrong and suggest what the user can do.
 
+IMPORTANT: When users ask about current events, news, or information that might not be in your training data, you MUST use the web search tool.
+
+To search the web, use the web search tool with these parameters:
+- query: the search query
+- max_results: number of results to return (default: 5)
+
+For example, if a user asks "What's the latest news about AI?", you should:
+1. Use the web search tool with query="latest news about artificial intelligence"
+2. When you get the results, format them like this:
+   Search Results for "[query]":
+   
+   [For each result]
+   - [title]
+     [snippet]
+     Source: [url]
+
+3. Summarize the key points from the search results
+4. If there's an error, explain what went wrong and suggest what the user can do
+
 DO NOT suggest manual commands or alternative search methods. Always use the appropriate tool for the task.
+
+When using the web search tool, you MUST:
+1. Call the tool with the appropriate query
+2. Wait for the results
+3. Format and present the results to the user
+4. Do not respond with placeholder messages like "I will search..." or "Searching..."
 
 Always be concise and clear in your responses."""),
             MessagesPlaceholder(variable_name="chat_history"),
@@ -140,6 +169,7 @@ Always be concise and clear in your responses."""),
         ])
 
         functions = [convert_to_openai_function(t) for t in self.tools]
+        logger.info("Converted %d tools to OpenAI functions", len(functions))
         
         agent = RunnableParallel({
             "input": RunnablePassthrough(),
@@ -157,6 +187,8 @@ Always be concise and clear in your responses."""),
             agent=agent,
             tools=self.tools,
             verbose=True,
+            handle_parsing_errors=True,
+            max_iterations=3,
         )
 
     async def process_input(self, user_input: str) -> str:
@@ -169,25 +201,33 @@ Always be concise and clear in your responses."""),
         Returns:
             The agent's response
         """
+        logger.info("Processing input: %s", user_input)
+        
         # Use thread pool for I/O-bound tasks
         loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            self.thread_pool,
-            lambda: self.agent_executor.invoke({
-                "input": user_input,
-                "chat_history": self.chat_history,
-            })
-        )
-        
-        # Update chat history
-        self.chat_history.append({"role": "user", "content": user_input})
-        self.chat_history.append({"role": "assistant", "content": result["output"]})
-        
-        # Speak the response if voice is enabled
-        if self.voice:
-            await self.voice.speak(result["output"])
-        
-        return result["output"]
+        try:
+            result = await loop.run_in_executor(
+                self.thread_pool,
+                lambda: self.agent_executor.invoke({
+                    "input": user_input,
+                    "chat_history": self.chat_history,
+                })
+            )
+            
+            logger.info("Agent executor result: %s", result)
+            
+            # Update chat history
+            self.chat_history.append({"role": "user", "content": user_input})
+            self.chat_history.append({"role": "assistant", "content": result["output"]})
+            
+            # Speak the response if voice is enabled
+            if self.voice:
+                await self.voice.speak(result["output"])
+            
+            return result["output"]
+        except Exception as e:
+            logger.error("Error processing input: %s", str(e))
+            return f"Error: {str(e)}"
 
     async def run(self, user_input: str) -> str:
         """

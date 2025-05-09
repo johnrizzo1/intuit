@@ -43,6 +43,7 @@ Intuit is a flexible, agentic personal assistant that can be accessed via CLI, v
    ```
 
 4. Install dependencies:
+
    ```bash
    pip install -e .
    ```
@@ -50,23 +51,26 @@ Intuit is a flexible, agentic personal assistant that can be accessed via CLI, v
 ## Usage
 
 ### CLI Mode
+
 ```bash
-intuit chat
+uv run intuit chat
 ```
 
 ### Single Query Mode
+
 ```bash
-intuit chat "What's the weather like?"
+uv run intuit chat "What's the weather like?"
 ```
 
 ### Voice Mode
+
 ```bash
-intuit voice
+uv run intuit voice
 ```
 
 ## Project Structure
 
-```
+```shell
 intuit/
 ├── devenv.nix           # Nix development environment
 ├── pyproject.toml       # Python project configuration
@@ -97,11 +101,13 @@ intuit/
 ## Development
 
 ### Running Tests
+
 ```bash
 pytest
 ```
 
 ### Code Formatting
+
 ```bash
 black .
 ruff check .
@@ -115,6 +121,7 @@ ruff check .
 4. Add the tool to the agent's tool list
 
 Example:
+
 ```python
 from .base import BaseTool
 
