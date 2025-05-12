@@ -789,14 +789,10 @@ def voice(
         openai_api_version=openai_api_version,
     ))
     try:
-        if agent.reminder_service: # Start reminder service if initialized
-            agent.reminder_service.start()
+        # Reminder service is now started and stopped inside run_voice
         asyncio.run(run_voice(agent))
     except KeyboardInterrupt:
         print("\nStopping voice interface...")
-    finally:
-        if agent.reminder_service: # Stop reminder service on exit
-            agent.reminder_service.stop()
 
 def main():
     """Main entry point."""

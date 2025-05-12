@@ -39,6 +39,12 @@ class ReminderService:
         while self._running:
             logger.debug("Checking for reminders...")
             try:
+                # Check if reminders_tool is None or doesn't have data_dir
+                if not self.reminders_tool or not hasattr(self.reminders_tool, 'data_dir'):
+                    logger.warning("Reminders tool not properly initialized")
+                    await asyncio.sleep(60)  # Wait and try again
+                    continue
+                    
                 # Read and parse reminder files directly
                 for filename in os.listdir(self.reminders_tool.data_dir):
                     if filename.endswith(".json"):
@@ -60,11 +66,11 @@ class ReminderService:
                                     f.write(reminder.model_dump_json(indent=4))
     
                         except (json.JSONDecodeError, FileNotFoundError) as e:
-                            logger.error(f"Error reading reminder file {filename}: {e}")
+                            logger.info(f"Error reading reminder file {filename}: {e}")  # Changed to INFO level
                             continue # Continue to next file on error
     
             except Exception as e:
-                logger.error(f"Error in reminder checking task: {e}")
+                logger.info(f"Error in reminder checking task: {e}")  # Changed to INFO level
     
             await asyncio.sleep(60) # Check every 60 seconds
 
@@ -81,7 +87,6 @@ class ReminderService:
             logger.info("Stopping reminder service background task.")
             self._running = False
             self._task.cancel()
-            try:
-                asyncio.get_event_loop().run_until_complete(self._task)
-            except asyncio.CancelledError:
-                logger.info("Reminder service background task cancelled.")
+            # Don't try to await the task here, as it might cause "event loop already running" errors
+            # Just mark it as cancelled and let it be garbage collected
+            logger.info("Reminder service background task cancelled.")

@@ -104,7 +104,10 @@ class VoiceInterface:
                 try:
                     print("Processing...")
                     response = await self.agent.run(query)
-                    await self._speak(response)
+                    # Don't call self._speak if the agent already has voice output
+                    # This prevents the response from being spoken twice
+                    if not self.agent.voice:
+                        await self._speak(response)
                 except Exception as e:
                     error_msg = f"Error: {str(e)}"
                     print(error_msg)
@@ -119,8 +122,16 @@ class VoiceInterface:
 async def run_voice(agent: Agent) -> None:
     """Run the voice interface."""
     try:
+        # Start reminder service if initialized (inside the event loop)
+        if agent.reminder_service:
+            agent.reminder_service.start()
+            
         interface = VoiceInterface(agent)
         await interface.run()
     finally:
+        # Stop reminder service if it was started
+        if agent.reminder_service:
+            agent.reminder_service.stop()
+            
         # Properly shut down MCP clients to avoid "unhandled errors in a TaskGroup" message
         await agent.shutdown_mcp_clients()
