@@ -17,7 +17,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.runnables import RunnableParallel, RunnablePassthrough
 from langchain_core.messages import AIMessage, HumanMessage
 
-from .tools.base import BaseTool
+from .tools.basetool import BaseTool
 from .tools.calendar import CalendarTool # Import CalendarTool
 from .tools.notes import NotesTool # Import NotesTool
 from .tools.reminders import RemindersTool # Import RemindersTool
@@ -140,7 +140,8 @@ class Agent:
                         while True:
                             await asyncio.sleep(60)
                 except Exception as e:
-                    logger.error(f"Error in MCP client task: {e}")
+                    # Log at INFO level instead of ERROR so it only shows with -v flag
+                    logger.info(f"Error in MCP client task: {e}")
                     
                     # Don't try to use the client if there was an error connecting
                     # Instead, use hardcoded tools as a fallback
@@ -233,7 +234,8 @@ class Agent:
                                     
                                     return "Screenshot taken successfully."
                                 except Exception as e:
-                                    logger.error(f"Error taking screenshot: {e}")
+                                    # Log at INFO level instead of ERROR so it only shows with -v flag
+                                    logger.info(f"Error taking screenshot: {e}")
                                     return f"Error taking screenshot: {e}"
                             
                             # If no specific implementation, return a generic message
@@ -295,7 +297,8 @@ class Agent:
             self.mcp_client_tasks[url] = task
             return f"Connecting to MCP server at {url} in background. Tools will be available once registered."
         except Exception as e:
-            logger.error(f"Failed to connect to MCP server at {url}: {e}")
+            # Log at INFO level instead of ERROR so it only shows with -v flag
+            logger.info(f"Failed to connect to MCP server at {url}: {e}")
             return f"Failed to connect to MCP server at {url}: {str(e)}"
 
     def list_mcp_tools(self) -> str:
@@ -384,6 +387,27 @@ You have access to various tools to help the user:
 6. Notes management for adding, listing, searching, and deleting notes
 7. Reminders management for adding, listing, searching, and deleting reminders, including setting a specific time.
 8. Desktop automation for interacting with the operating system, such as accessing the clipboard.
+9. Hacker News integration for fetching top stories, new stories, best stories, and story details.
+
+IMPORTANT: When users ask about Hacker News, news, or latest tech stories, you MUST use the hackernews tool. The hackernews tool provides access to content from Hacker News.
+
+To use the hackernews tool, use these parameters:
+- action: the type of stories to fetch ("top", "new", "best") or "item" for a specific story
+- limit: maximum number of stories to return (default: 10)
+- item_id: ID of a specific item to fetch (only used when action is "item")
+
+For example:
+1. If a user asks "What's the latest on Hacker News?", use:
+   action="top"
+   limit=10
+
+2. If a user asks "Show me new stories from Hacker News", use:
+   action="new"
+   limit=10
+
+3. If a user asks "What are the best stories on Hacker News?", use:
+   action="best"
+   limit=10
 
 IMPORTANT: When users ask about their Gmail, you MUST use the gmail tool. The gmail tool provides access to read and manage email messages.
 
@@ -452,6 +476,26 @@ For example, if a user asks "What's the weather like in Charlotte?", you should:
 
 3. If there's an error, explain what went wrong and suggest what the user can do.
 
+IMPORTANT: When users ask about Hacker News or tech news, you MUST use the hackernews tool first. If they're asking about other news or current events that might not be in your training data, use the web search tool.
+
+To get content from Hacker News, use the hackernews tool with these parameters:
+- action: the type of stories to fetch ("top", "new", "best") or "item" for a specific story
+- limit: maximum number of stories to return (default: 10)
+- item_id: ID of a specific item to fetch (only used when action is "item")
+
+For example, if a user asks "What's trending on Hacker News?", you should:
+1. Use the hackernews tool with action="top" and limit=10
+2. When you get the response, format it like this:
+   Top Stories from Hacker News:
+   
+   [For each story]
+   - [title]
+     Score: [score] | Comments: [descendants]
+     Posted by: [by]
+     URL: [url]
+
+3. If there's an error, explain what went wrong and suggest what the user can do.
+
 IMPORTANT: When users ask about current events, news, or information that might not be in your training data, you MUST use the web search tool.
 
 To search the web, use the web search tool with these parameters:
@@ -514,6 +558,38 @@ To use the weather tool:
     "arguments": {{
         "location": "location name here"
     }}
+}}
+
+To use the hackernews tool:
+{{
+   "name": "mcp_hackernews_top",
+   "arguments": {{
+       "limit": 10
+   }}
+}}
+
+Or:
+{{
+   "name": "mcp_hackernews_new",
+   "arguments": {{
+       "limit": 10
+   }}
+}}
+
+Or:
+{{
+   "name": "mcp_hackernews_best",
+   "arguments": {{
+       "limit": 10
+   }}
+}}
+
+Or:
+{{
+   "name": "mcp_hackernews_story",
+   "arguments": {{
+       "item_id": 12345
+   }}
 }}
 
 To use the calendar tool:
@@ -595,7 +671,8 @@ Always be concise and clear in your responses.'''),
             try:
                 tool = tool_map.get(tool_name)
                 if not tool:
-                    logger.error(f"Tool '{tool_name}' not found in tool_map.")
+                    # Log at INFO level instead of ERROR so it only shows with -v flag
+                    logger.info(f"Tool '{tool_name}' not found in tool_map.")
                     return f"Error: Tool '{tool_name}' not found"
 
                 # For MCPToolWrapper or Tool, arguments are passed directly as it handles its own schema.
@@ -663,7 +740,8 @@ Always be concise and clear in your responses.'''),
                 result = await tool._arun(**filtered_args)
                 return str(result)
             except Exception as e:
-                logger.error(f"Error executing tool {tool_name} with args {tool_args}: {e}", exc_info=True)
+                # Log at INFO level instead of ERROR so it only shows with -v flag
+                logger.info(f"Error executing tool {tool_name} with args {tool_args}: {e}", exc_info=True)
                 return f"Error executing {tool_name}: {str(e)}"
 
         # Convert tools to OpenAI functions
@@ -980,7 +1058,7 @@ Always be concise and clear in your responses.'''),
         return AgentExecutor(
             agent=agent, # This is the RunnableSequence defined earlier
             tools=langchain_tools_list,
-            verbose=True, # Set to False for cleaner logs in production
+            verbose=False, # Set to False for cleaner logs in production
             handle_parsing_errors=True, # Good for development
             max_iterations=5, # Increased slightly
             return_intermediate_steps=True,
@@ -1023,7 +1101,8 @@ Always be concise and clear in your responses.'''),
                             logger.info(f"Added {len(self.mcp_tools)} MCP tools")
                             self._update_agent_executor_with_mcp_tools()
                     except Exception as e:
-                        logger.error(f"Error getting tools from MCP server: {e}")
+                        # Log at INFO level instead of ERROR so it only shows with -v flag
+                        logger.info(f"Error getting tools from MCP server: {e}")
             
             # If we still don't have any MCP tools, try to get them from the static definition
             if not self.mcp_tools:
@@ -1080,6 +1159,26 @@ Always be concise and clear in your responses.'''),
                                 "name": "take_screenshot",
                                 "description": "Take a screenshot of the user's screen and return it as an image",
                                 "parameters": {"type": "object", "properties": {}}
+                            },
+                            {
+                                "name": "hackernews_top",
+                                "description": "Get top stories from Hacker News",
+                                "parameters": {"type": "object", "properties": {"limit": {"type": "integer", "default": 10}}}
+                            },
+                            {
+                                "name": "hackernews_new",
+                                "description": "Get new stories from Hacker News",
+                                "parameters": {"type": "object", "properties": {"limit": {"type": "integer", "default": 10}}}
+                            },
+                            {
+                                "name": "hackernews_best",
+                                "description": "Get best stories from Hacker News",
+                                "parameters": {"type": "object", "properties": {"limit": {"type": "integer", "default": 10}}}
+                            },
+                            {
+                                "name": "hackernews_story",
+                                "description": "Get details of a specific Hacker News story",
+                                "parameters": {"type": "object", "properties": {"item_id": {"type": "integer"}}, "required": ["item_id"]}
                             }
                         ]
                         
@@ -1116,7 +1215,8 @@ Always be concise and clear in your responses.'''),
                             logger.info(f"Added {len(self.mcp_tools)} MCP tools from hardcoded definition")
                             self._update_agent_executor_with_mcp_tools()
                 except Exception as e:
-                    logger.error(f"Error getting tools from static definition: {e}")
+                    # Log at INFO level instead of ERROR so it only shows with -v flag
+                    logger.info(f"Error getting tools from static definition: {e}")
             
             return self.list_mcp_tools()
 
@@ -1282,7 +1382,8 @@ class MCPToolWrapper(BaseTool):
             logger.debug(f"Result from MCP tool '{self.name}': {result}")
             return str(result) # Ensure result is a string
         except Exception as e:
-            logger.error(f"Error executing MCP tool {self.name}: {e}", exc_info=True)
+            # Log at INFO level instead of ERROR so it only shows with -v flag
+            logger.info(f"Error executing MCP tool {self.name}: {e}", exc_info=True)
             return f"Error during MCP tool '{self.name}' execution: {str(e)}"
 
     # _run is not strictly necessary if _arun is implemented and used by AgentExecutor

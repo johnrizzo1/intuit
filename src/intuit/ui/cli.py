@@ -129,23 +129,27 @@ async def process_single_query(agent: Agent, query: str) -> None:
 
 async def run_cli(agent: Agent, query: Optional[str] = None, quiet: bool = False) -> None:
     """Run the CLI interface."""
-    if query:
-        # Process single query without any terminal features
-        await process_single_query(agent, query)
-        return
-    
-    # Check if input is from a pipe
-    import sys
-    if not sys.stdin.isatty():
-        # Read from pipe without any terminal features
-        query = await read_non_interactive_input()
+    try:
         if query:
+            # Process single query without any terminal features
             await process_single_query(agent, query)
-        return
-    
-    # Run interactive interface
-    interface = CLIInterface(agent, quiet=quiet)
-    await interface.run()
+            return
+        
+        # Check if input is from a pipe
+        import sys
+        if not sys.stdin.isatty():
+            # Read from pipe without any terminal features
+            query = await read_non_interactive_input()
+            if query:
+                await process_single_query(agent, query)
+            return
+        
+        # Run interactive interface
+        interface = CLIInterface(agent, quiet=quiet)
+        await interface.run()
+    finally:
+        # Properly shut down MCP clients to avoid "unhandled errors in a TaskGroup" message
+        await agent.shutdown_mcp_clients()
 
 def main() -> None:
     """CLI entry point."""

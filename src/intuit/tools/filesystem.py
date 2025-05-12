@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 from pydantic import Field, PrivateAttr
 
-from .base import BaseTool
+from intuit.tools.basetool import BaseTool
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -99,9 +99,13 @@ class FilesystemTool(BaseTool):
         if self._vector_store:
             # Use semantic search if vector store is available
             try:
-                results = await self._vector_store.search(query, limit=limit)
-                logger.info("Found %d results using semantic search", len(results))
-                return [await self._get_file_info(result.metadata['path']) for result in results]
+                semantic_results = await self._vector_store.search(query, limit=limit)
+                logger.info("Found %d results using semantic search", len(semantic_results))
+                semantic_file_info: List[Dict[str, Any]] = []
+                for result in semantic_results:
+                    info: Dict[str, Any] = await self._get_file_info(result.metadata['path'])
+                    semantic_file_info.append(info)
+                return semantic_file_info
             except Exception as e:
                 logger.error("Error in semantic search: %s", str(e))
                 # Fall back to basic search if semantic search fails
@@ -111,7 +115,7 @@ class FilesystemTool(BaseTool):
         try:
             # Search in current directory and subdirectories
             path = Path(".")
-            results = []
+            basic_results: List[Dict[str, Any]] = []
             
             # Convert query to lowercase for case-insensitive search
             query_lower = query.lower()
@@ -122,26 +126,28 @@ class FilesystemTool(BaseTool):
                     try:
                         # Check if query is in filename
                         if query_lower in file_path.name.lower():
-                            results.append(await self._get_file_info(str(file_path)))
+                            filename_info: Dict[str, Any] = await self._get_file_info(str(file_path))
+                            basic_results.append(filename_info)
                             continue
                             
                         # Check if query is in file content
                         try:
                             content = file_path.read_text().lower()
                             if query_lower in content:
-                                results.append(await self._get_file_info(str(file_path)))
+                                content_info: Dict[str, Any] = await self._get_file_info(str(file_path))
+                                basic_results.append(content_info)
                         except UnicodeDecodeError:
                             # Skip binary files
                             continue
                             
-                        if len(results) >= limit:
+                        if len(basic_results) >= limit:
                             break
                     except Exception as e:
                         logger.warning("Error processing file %s: %s", file_path, str(e))
                         continue
             
-            logger.info("Found %d results using basic search", len(results))
-            return results
+            logger.info("Found %d results using basic search", len(basic_results))
+            return basic_results
         except Exception as e:
             logger.error("Error in basic search: %s", str(e))
             raise

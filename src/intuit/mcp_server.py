@@ -20,11 +20,12 @@ from intuit.tools.reminders import RemindersTool
 from intuit.tools.weather import WeatherTool
 from intuit.tools.web_search import WebSearchTool
 from intuit.tools.filesystem import FilesystemTool
+from intuit.tools.hackernews import HackerNewsTool
 
 logger = logging.getLogger(__name__)
 
-# Create server instance
-mcp_server = FastMCP("Intuit Tools", dependencies=["pyautogui", "Pillow", "pydantic"])
+# Create server instance with log_level set to ERROR to reduce verbosity
+mcp_server = FastMCP("Intuit Tools", dependencies=["pyautogui", "Pillow", "pydantic"], log_level="ERROR")
 
 # Server configuration
 DEFAULT_SERVER_HOST = "localhost"
@@ -36,7 +37,7 @@ DEFAULT_SERVER_PORT = 8000
 
 # Calendar tools
 @mcp_server.tool()
-def calendar_tool():
+def calendar_tool() -> CalendarTool:
     """Calendar management tool"""
     return CalendarTool()
 
@@ -53,32 +54,32 @@ def calendar_add(event: str) -> str:
     """
     logger.info(f"MCP: Adding calendar event: {event}")
     calendar_tool = CalendarTool()
-    return calendar_tool.add_event(event)
+    return str(calendar_tool.add_event(event))
 
 @mcp_server.tool()
 def calendar_list() -> str:
     """Lists all calendar events."""
     logger.info("MCP: Listing calendar events")
     calendar_tool = CalendarTool()
-    return calendar_tool.list_events()
+    return str(calendar_tool.list_events())
 
 @mcp_server.tool()
 def calendar_search(keyword: str) -> str:
     """Searches calendar events for a keyword."""
     logger.info(f"MCP: Searching calendar events for: {keyword}")
     calendar_tool = CalendarTool()
-    return calendar_tool.search_events(keyword)
+    return str(calendar_tool.search_events(keyword))
 
 @mcp_server.tool()
 def calendar_delete(filename: str) -> str:
     """Deletes a calendar event by filename."""
     logger.info(f"MCP: Deleting calendar event: {filename}")
     calendar_tool = CalendarTool()
-    return calendar_tool.delete_event(filename)
+    return str(calendar_tool.delete_event(filename))
 
 # Notes tools
 @mcp_server.tool()
-def notes_tool():
+def notes_tool() -> NotesTool:
     """Notes management tool"""
     return NotesTool()
 
@@ -87,32 +88,32 @@ def notes_add(content: str) -> str:
     """Adds a new note."""
     logger.info(f"MCP: Adding note: {content}")
     notes_tool = NotesTool()
-    return notes_tool.add_note(content)
+    return str(notes_tool.add_note(content))
 
 @mcp_server.tool()
 def notes_list() -> str:
     """Lists all notes."""
     logger.info("MCP: Listing notes")
     notes_tool = NotesTool()
-    return notes_tool.list_notes()
+    return str(notes_tool.list_notes())
 
 @mcp_server.tool()
 def notes_search(keyword: str) -> str:
     """Searches notes for a keyword."""
     logger.info(f"MCP: Searching notes for: {keyword}")
     notes_tool = NotesTool()
-    return notes_tool.search_notes(keyword)
+    return str(notes_tool.search_notes(keyword))
 
 @mcp_server.tool()
 def notes_delete(id: str) -> str:
     """Deletes a note by ID."""
     logger.info(f"MCP: Deleting note: {id}")
     notes_tool = NotesTool()
-    return notes_tool.delete_note(id)
+    return str(notes_tool.delete_note(id))
 
 # Reminders tools
 @mcp_server.tool()
-def reminders_tool():
+def reminders_tool() -> RemindersTool:
     """Reminders management tool"""
     return RemindersTool()
 
@@ -130,32 +131,32 @@ def reminders_add(content: str, reminder_time: Optional[str] = None) -> str:
     """
     logger.info(f"MCP: Adding reminder: {content} at {reminder_time}")
     reminders_tool = RemindersTool()
-    return reminders_tool.add_reminder(content, reminder_time)
+    return str(reminders_tool.add_reminder(content, reminder_time))
 
 @mcp_server.tool()
 def reminders_list() -> str:
     """Lists all reminders."""
     logger.info("MCP: Listing reminders")
     reminders_tool = RemindersTool()
-    return reminders_tool.list_reminders()
+    return str(reminders_tool.list_reminders())
 
 @mcp_server.tool()
 def reminders_search(keyword: str) -> str:
     """Searches reminders for a keyword."""
     logger.info(f"MCP: Searching reminders for: {keyword}")
     reminders_tool = RemindersTool()
-    return reminders_tool.search_reminders(keyword)
+    return str(reminders_tool.search_reminders(keyword))
 
 @mcp_server.tool()
 def reminders_delete(id: str) -> str:
     """Deletes a reminder by ID."""
     logger.info(f"MCP: Deleting reminder: {id}")
     reminders_tool = RemindersTool()
-    return reminders_tool.delete_reminder(id)
+    return str(reminders_tool.delete_reminder(id))
 
 # Weather tool
 @mcp_server.tool()
-def weather_tool():
+def weather_tool() -> WeatherTool:
     """Weather information tool"""
     return WeatherTool()
 
@@ -172,11 +173,11 @@ def weather_get(location: str) -> str:
     """
     logger.info(f"MCP: Getting weather for: {location}")
     weather_tool = WeatherTool()
-    return weather_tool.get_weather(location)
+    return str(weather_tool.get_weather(location))
 
 # Web search tool
 @mcp_server.tool()
-def web_search_tool():
+def web_search_tool() -> WebSearchTool:
     """Web search tool"""
     return WebSearchTool()
 
@@ -194,11 +195,12 @@ def web_search(query: str, max_results: int = 5) -> str:
     """
     logger.info(f"MCP: Searching web for: {query}")
     web_search_tool = WebSearchTool()
-    return web_search_tool.search(query, max_results)
+    result = web_search_tool.search(query, max_results)
+    return str(result)  # Convert result to string to match return type
 
 # Filesystem tool
 @mcp_server.tool()
-def filesystem_tool():
+def filesystem_tool() -> FilesystemTool:
     """Filesystem access tool"""
     return FilesystemTool()
 
@@ -215,7 +217,7 @@ def filesystem_list(path: str) -> str:
     """
     logger.info(f"MCP: Listing directory: {path}")
     filesystem_tool = FilesystemTool()
-    return filesystem_tool.list_directory(path)
+    return str(filesystem_tool.list_directory(path))
 
 @mcp_server.tool()
 def filesystem_read(path: str) -> str:
@@ -230,7 +232,7 @@ def filesystem_read(path: str) -> str:
     """
     logger.info(f"MCP: Reading file: {path}")
     filesystem_tool = FilesystemTool()
-    return filesystem_tool.read_file(path)
+    return str(filesystem_tool.read_file(path))
 
 @mcp_server.tool()
 def filesystem_write(path: str, content: str) -> str:
@@ -246,7 +248,7 @@ def filesystem_write(path: str, content: str) -> str:
     """
     logger.info(f"MCP: Writing to file: {path}")
     filesystem_tool = FilesystemTool()
-    return filesystem_tool.write_file(path, content)
+    return str(filesystem_tool.write_file(path, content))
 
 @mcp_server.tool()
 def filesystem_search(path: str, query: str) -> str:
@@ -262,7 +264,7 @@ def filesystem_search(path: str, query: str) -> str:
     """
     logger.info(f"MCP: Searching for: {query} in {path}")
     filesystem_tool = FilesystemTool()
-    return filesystem_tool.search(path, query)
+    return str(filesystem_tool.search(path, query))
 
 @mcp_server.tool()
 def take_screenshot() -> MCPImage:
@@ -279,79 +281,82 @@ def take_screenshot() -> MCPImage:
         logger.info("Screenshot taken successfully.")
         return MCPImage(data=buffer.getvalue(), format="jpeg")
     except Exception as e:
-        logger.error(f"Error taking screenshot: {e}")
+        # Log at INFO level instead of ERROR so it only shows with -v flag
+        logger.info(f"Error taking screenshot: {e}")
         # Consider returning an error object or raising an MCP-specific exception
         raise
 
+# Hacker News tool
 @mcp_server.tool()
-def calendar_add(event: str) -> str:
-    """
-    Add a new calendar event.
+def hackernews_tool() -> HackerNewsTool:
+    """Hacker News information tool"""
+    return HackerNewsTool()
 
+@mcp_server.tool()
+def hackernews_top(limit: int = 10) -> str:
+    """
+    Get top stories from Hacker News.
+    
     Args:
-        event: Details of the calendar event to add
-
+        limit: Maximum number of stories to return (default: 10)
+        
     Returns:
-        Confirmation message with the event ID
+        Top stories from Hacker News
     """
-    logger.info(f"MCP: Adding calendar event: {event}")
-    calendar_tool = CalendarTool()
-    return calendar_tool.add_event(event)
+    logger.info(f"MCP: Getting top stories from Hacker News (limit: {limit})")
+    hackernews_tool = HackerNewsTool()
+    return str(hackernews_tool.get_top_stories(limit))
 
 @mcp_server.tool()
-def calendar_list() -> str:
-    """Lists all calendar events."""
-    logger.info("MCP: Listing calendar events")
-    calendar_tool = CalendarTool()
-    return calendar_tool.list_events()
+def hackernews_new(limit: int = 10) -> str:
+    """
+    Get new stories from Hacker News.
+    
+    Args:
+        limit: Maximum number of stories to return (default: 10)
+        
+    Returns:
+        New stories from Hacker News
+    """
+    logger.info(f"MCP: Getting new stories from Hacker News (limit: {limit})")
+    hackernews_tool = HackerNewsTool()
+    return str(hackernews_tool.get_new_stories(limit))
 
 @mcp_server.tool()
-def calendar_search(keyword: str) -> str:
-    """Searches calendar events for a keyword."""
-    logger.info(f"MCP: Searching calendar events for: {keyword}")
-    calendar_tool = CalendarTool()
-    return calendar_tool.search_events(keyword)
+def hackernews_best(limit: int = 10) -> str:
+    """
+    Get best stories from Hacker News.
+    
+    Args:
+        limit: Maximum number of stories to return (default: 10)
+        
+    Returns:
+        Best stories from Hacker News
+    """
+    logger.info(f"MCP: Getting best stories from Hacker News (limit: {limit})")
+    hackernews_tool = HackerNewsTool()
+    return str(hackernews_tool.get_best_stories(limit))
 
 @mcp_server.tool()
-def calendar_delete(filename: str) -> str:
-    """Deletes a calendar event by filename."""
-    logger.info(f"MCP: Deleting calendar event: {filename}")
-    calendar_tool = CalendarTool()
-    return calendar_tool.delete_event(filename)
-
-@mcp_server.tool()
-def notes_add(content: str) -> str:
-    """Adds a new note."""
-    logger.info(f"MCP: Adding note: {content}")
-    notes_tool = NotesTool()
-    return notes_tool.add_note(content)
-
-@mcp_server.tool()
-def notes_list() -> str:
-    """Lists all notes."""
-    logger.info("MCP: Listing notes")
-    notes_tool = NotesTool()
-    return notes_tool.list_notes()
-
-@mcp_server.tool()
-def notes_search(keyword: str) -> str:
-    """Searches notes for a keyword."""
-    logger.info(f"MCP: Searching notes for: {keyword}")
-    notes_tool = NotesTool()
-    return notes_tool.search_notes(keyword)
-
-@mcp_server.tool()
-def notes_delete(id: str) -> str:
-    """Deletes a note by ID."""
-    logger.info(f"MCP: Deleting note: {id}")
-    notes_tool = NotesTool()
-    return notes_tool.delete_note(id)
+def hackernews_story(item_id: int) -> str:
+    """
+    Get details of a specific Hacker News story.
+    
+    Args:
+        item_id: ID of the story to retrieve
+        
+    Returns:
+        Details of the specified Hacker News story
+    """
+    logger.info(f"MCP: Getting Hacker News story with ID: {item_id}")
+    hackernews_tool = HackerNewsTool()
+    return str(hackernews_tool.get_story(item_id))
 
 # --- Server Management ---
 
 # Top-level function to run the server in a separate process
 # This avoids pickling the MCPServerManager instance or the FastMCP instance directly.
-def _run_mcp_server_process(host: str, port: int):
+def _run_mcp_server_process(host: str, port: int) -> None:
     """Target function for the MCP server process."""
     # Access the globally defined and configured mcp_server instance.
     # In 'spawn' context, the module is re-imported, re-running decorators
@@ -359,16 +364,17 @@ def _run_mcp_server_process(host: str, port: int):
     logger.info(f"MCP server process started. Running server on {host}:{port}")
     try:
         # Use the global mcp_server instance which has tools registered.
-        # Remove log_level as it seems unsupported as a keyword arg
+        # Configure uvicorn to be less verbose by setting log_level to ERROR
         # Use SSE transport with host/port parameters
-        mcp_server.run("sse", mount_path=f"/{host}:{port}")
+        mcp_server.run("sse", mount_path=f"/{host}:{port}", log_level="ERROR")
     except Exception as e:
-        logger.error(f"Error running MCP server in child process: {e}", exc_info=True)
+        # Log at INFO level instead of ERROR so it only shows with -v flag
+        logger.info(f"Error running MCP server in child process: {e}", exc_info=True)
 
 class MCPServerManager:
     """Manager for the MCP server instance."""
 
-    def __init__(self, host=DEFAULT_SERVER_HOST, port=DEFAULT_SERVER_PORT):
+    def __init__(self, host: str = DEFAULT_SERVER_HOST, port: int = DEFAULT_SERVER_PORT) -> None:
         self.host = host
         self.port = port
         # No longer need to store server_instance here for starting
@@ -377,7 +383,7 @@ class MCPServerManager:
 
     # _run_server method removed, replaced by _run_mcp_server_process top-level function
 
-    def start(self):
+    def start(self) -> str:
         """Start the MCP server in a separate process."""
         if not self.is_running:
             logger.info(f"Starting MCP server on http://{self.host}:{self.port} (process mode)")
@@ -394,16 +400,18 @@ class MCPServerManager:
                 logger.info(f"MCP server process started successfully (PID: {self.server_process.pid}) on http://{self.host}:{self.port}")
                 return f"MCP server started at http://{self.host}:{self.port} (process mode)"
             else:
-                logger.error("MCP server process failed to start or terminated unexpectedly.")
+                # Log at INFO level instead of ERROR so it only shows with -v flag
+                logger.info("MCP server process failed to start or terminated unexpectedly.")
                 self.is_running = False
                 # Attempt to get exit code if possible
                 exitcode = getattr(self.server_process, 'exitcode', 'N/A')
-                logger.error(f"Server process exit code: {exitcode}")
+                # Log at INFO level instead of ERROR so it only shows with -v flag
+                logger.info(f"Server process exit code: {exitcode}")
                 return "MCP server failed to start. Check logs."
         logger.info("MCP server is already running.")
         return "MCP server is already running."
 
-    def stop(self):
+    def stop(self) -> str:
         """Stop the MCP server process."""
         if self.is_running and self.server_process:
             logger.info("Stopping MCP server process...")
@@ -415,7 +423,7 @@ class MCPServerManager:
         logger.info("MCP server is not running.")
         return "MCP server is not running."
 
-    def get_tools(self):
+    def get_tools(self) -> list[dict[str, object]] | str:
         """Returns a list of available tools on the server."""
         # FastMCP keeps a registry of tools, typically as a dict: {name: Tool}
         # We'll extract name, description, and parameters/schema if available
@@ -439,13 +447,13 @@ class MCPServerManager:
 cli_app = typer.Typer(name="mcp-server", help="Manage the Intuit MCP Server", invoke_without_command=True)
 _manager_instance = None # To hold a global manager instance for CLI
 
-def get_manager():
+def get_manager() -> MCPServerManager:
     global _manager_instance
     if _manager_instance is None:
         _manager_instance = MCPServerManager()
     return _manager_instance
 
-def get_registered_tools():
+def get_registered_tools() -> list[dict[str, object]]:
     """Return registered tools from the global mcp_server instance (for CLI listing)."""
     import asyncio
     tools = []
@@ -469,7 +477,8 @@ def get_registered_tools():
             logger.info(f"Found {len(tools)} tools directly from MCP server")
             return tools
     except Exception as e:
-        logger.error(f"Error getting tools directly from MCP server: {e}")
+        # Log at INFO level instead of ERROR so it only shows with -v flag
+        logger.info(f"Error getting tools directly from MCP server: {e}")
     
     # If that fails, try to get tools using the list_tools method
     if not tools:
@@ -485,7 +494,8 @@ def get_registered_tools():
                 })
             logger.info(f"Found {len(tools)} tools using list_tools method")
         except Exception as e:
-            logger.error(f"Error getting tools using list_tools method: {e}")
+            # Log at INFO level instead of ERROR so it only shows with -v flag
+            logger.info(f"Error getting tools using list_tools method: {e}")
     
     # If we still don't have any tools, create a hardcoded list
     if not tools:
@@ -535,6 +545,26 @@ def get_registered_tools():
                 'name': 'take_screenshot',
                 'description': 'Take a screenshot of the user\'s screen and return it as an image.\nUse this tool anytime the user wants you to look at something they\'re doing.',
                 'parameters': {'type': 'object', 'properties': {}}
+            },
+            {
+                'name': 'hackernews_top',
+                'description': 'Get top stories from Hacker News.',
+                'parameters': {'type': 'object', 'properties': {'limit': {'type': 'integer', 'default': 10}}}
+            },
+            {
+                'name': 'hackernews_new',
+                'description': 'Get new stories from Hacker News.',
+                'parameters': {'type': 'object', 'properties': {'limit': {'type': 'integer', 'default': 10}}}
+            },
+            {
+                'name': 'hackernews_best',
+                'description': 'Get best stories from Hacker News.',
+                'parameters': {'type': 'object', 'properties': {'limit': {'type': 'integer', 'default': 10}}}
+            },
+            {
+                'name': 'hackernews_story',
+                'description': 'Get details of a specific Hacker News story.',
+                'parameters': {'type': 'object', 'properties': {'item_id': {'type': 'integer'}}, 'required': ['item_id']}
             }
         ]
         logger.info(f"Created hardcoded list of {len(tools)} tools")
@@ -542,7 +572,7 @@ def get_registered_tools():
     return tools
 
 @cli_app.callback()
-def main(ctx: typer.Context):
+def main(ctx: typer.Context) -> None:
     """MCP Server CLI."""
     if ctx.invoked_subcommand is None:
         typer.echo(ctx.get_help())
@@ -551,7 +581,7 @@ def main(ctx: typer.Context):
 def start(
     host: str = typer.Option(DEFAULT_SERVER_HOST, help="Server host"),
     port: int = typer.Option(DEFAULT_SERVER_PORT, help="Server port")
-):
+) -> None:
     """Start the MCP server."""
     manager = MCPServerManager(host=host, port=port)
     print(manager.start())
@@ -567,7 +597,7 @@ def start(
             print("MCP server shut down.")
 
 @cli_app.command()
-def status():
+def status() -> None:
     """Check the MCP server status."""
     manager = get_manager()
     if manager.is_running:
@@ -583,7 +613,7 @@ def status():
         print("MCP server is STOPPED.")
 
 @cli_app.command()
-def list_tools():
+def list_tools() -> None:
     """List available tools on the MCP server in a human-readable format."""
     manager = get_manager()
     # Attempt to get tools regardless of running state, assuming get_tools can handle it
@@ -602,9 +632,9 @@ def list_tools():
     print("--------------------")
 
     # Group tools by prefix (e.g., 'calendar', 'notes')
-    grouped_tools = {}
+    grouped_tools: dict[str, list[dict[str, object]]] = {}
     for tool in tools_data:
-        name = tool.get('name', 'unknown')
+        name = str(tool.get('name', 'unknown'))
         # Use the part before the first underscore as the group key
         prefix = name.split('_')[0] if '_' in name else 'general'
         if prefix not in grouped_tools:
@@ -618,10 +648,10 @@ def list_tools():
             continue
 
         print(f"\n{prefix.capitalize()} Tools:")
-        for tool in sorted(grouped_tools[prefix], key=lambda x: x.get('name', '')):
-            name = tool.get('name', 'N/A')
-            # Clean up description, handle potential None
-            description = (tool.get('description') or 'No description available.').strip()
+        for tool in sorted(grouped_tools[prefix], key=lambda x: str(x.get('name', ''))):
+            name = str(tool.get('name', 'N/A'))
+            # Clean up description, handle potential None and ensure string type
+            description = str(tool.get('description') or 'No description available.').strip()
             params_schema = tool.get('parameters') # This is the schema dict
 
             # Format parameters simply - just list names if available
@@ -642,11 +672,12 @@ def list_tools():
             print(f"    > {desc_lines[0].strip()}")
             # Print subsequent lines further indented
             for line in desc_lines[1:]:
-                 print(f"      {line.strip()}")
+                print(f"      {line.strip()}")
 
     print("\n--------------------")
+    return None
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.ERROR)  # Set to ERROR to reduce verbosity
     cli_app()

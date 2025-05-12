@@ -30,15 +30,53 @@ from .ui.voice import run_voice
 from .reminders_service import ReminderService
 from .mcp_server import MCPServerManager, DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT # Import MCP Server
 
-# Set up logging
+# Set up logging with default level (will be adjusted by verbosity option)
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.ERROR,  # Default to ERROR level only (suppress warnings)
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     force=True
 )
 logger = logging.getLogger(__name__)
 
+# Create the main app
 app = typer.Typer(no_args_is_help=True)
+
+# Define a callback to handle verbosity
+def set_verbosity(verbose: int = typer.Option(0, "--verbose", "-v", count=True,
+                                             help="Increase verbosity (can be used multiple times)")):
+    """Set the verbosity level based on the number of -v flags."""
+    # Set log levels based on verbosity count
+    if verbose == 0:
+        # Default: Show only errors
+        logging.getLogger().setLevel(logging.ERROR)
+        
+        # Specifically silence common noisy loggers
+        logging.getLogger("mcp").setLevel(logging.ERROR)
+        logging.getLogger("intuit").setLevel(logging.ERROR)
+        
+    elif verbose == 1:
+        # -v: Show warnings and errors
+        logging.getLogger().setLevel(logging.WARNING)
+        logging.getLogger("mcp").setLevel(logging.WARNING)
+        logging.getLogger("intuit").setLevel(logging.WARNING)
+        
+    elif verbose == 2:
+        # -vv: Show info, warnings, and errors
+        logging.getLogger().setLevel(logging.INFO)
+        logging.getLogger("mcp").setLevel(logging.INFO)
+        logging.getLogger("intuit").setLevel(logging.INFO)
+        
+    elif verbose >= 3:
+        # -vvv or more: Show debug, info, warnings, and errors
+        logging.getLogger().setLevel(logging.DEBUG)
+        logging.getLogger("mcp").setLevel(logging.DEBUG)
+        logging.getLogger("intuit").setLevel(logging.DEBUG)
+    
+    # Return value is required for the callback
+    return verbose
+
+# Register the callback
+app = typer.Typer(no_args_is_help=True, callback=set_verbosity)
 
 # Create Typer instances for each tool
 calendar_app = typer.Typer(name="calendar", help="Manage calendar events")
@@ -502,13 +540,17 @@ def start_mcp_server(
                 time.sleep(1)
         except KeyboardInterrupt:
             print("\nStopping MCP server...")
+            # Get tools info before stopping the server
+            tools_info = manager.get_tools()
             manager.stop()
             print("MCP server stopped.")
-        if isinstance(tools_info, builtins.list):
-            for tool_data in tools_info:
-                print(f"  - {tool_data.get('name')}: {tool_data.get('description')}")
-        else:
-            print(f"  Could not retrieve tool list: {tools_info}")
+        
+            # Print tools info after server is stopped
+            if isinstance(tools_info, list):
+                for tool_data in tools_info:
+                    print(f"  - {tool_data.get('name')}: {tool_data.get('description')}")
+            else:
+                print(f"  Could not retrieve tool list: {tools_info}")
         print("\nServer started successfully. Use 'uv run intuit mcp list-mcp-tools' to see available tools.")
         return  # Exit after starting server
     else:
@@ -517,6 +559,7 @@ def start_mcp_server(
 @mcp_cli_app.command("list-mcp-tools")
 def list_mcp_server_tools():
     """List available tools on the local MCP server in a human-readable format."""
+    agent = None
     try:
         # Create a temporary agent to use its list_mcp_tools method
         agent = asyncio.run(create_agent())
@@ -582,8 +625,9 @@ def list_mcp_server_tools():
             print("\n--------------------")
             return
         
-        # If MCP tools are available in the agent, use its list_mcp_tools method
-        print(agent.list_mcp_tools())
+        # If MCP tools are available in the agent, get the tools information
+        # Get the tools information from the agent
+        tools_info = agent.mcp_tools
 
         if not tools_info:
             print("No MCP tools found.")
@@ -595,7 +639,14 @@ def list_mcp_server_tools():
         # Group tools by prefix (e.g., 'calendar', 'notes')
         grouped_tools = {}
         for tool in tools_info:
-            name = tool.get('name', 'unknown')
+            # Handle both dictionary-like objects and objects with attributes
+            if hasattr(tool, 'get') and callable(tool.get):
+                # Dictionary-like object
+                name = tool.get('name', 'unknown')
+            else:
+                # Object with attributes
+                name = getattr(tool, 'name', 'unknown')
+                
             # Use the part before the first underscore as the group key
             prefix = name.split('_')[0] if '_' in name else 'general'
             if prefix not in grouped_tools:
@@ -609,11 +660,20 @@ def list_mcp_server_tools():
                 continue
 
             print(f"\n{prefix.capitalize()} Tools:")
-            for tool in sorted(grouped_tools[prefix], key=lambda x: x.get('name', '')):
-                name = tool.get('name', 'N/A')
-                # Clean up description, handle potential None and extra whitespace/newlines
-                description = (tool.get('description') or 'No description available.').strip()
-                params_schema = tool.get('parameters') # This is the schema dict
+            for tool in sorted(grouped_tools[prefix], key=lambda x: getattr(x, 'name', '') if not (hasattr(x, 'get') and callable(x.get)) else x.get('name', '')):
+                # Handle both dictionary-like objects and objects with attributes
+                if hasattr(tool, 'get') and callable(tool.get):
+                    # Dictionary-like object
+                    name = tool.get('name', 'N/A')
+                    # Clean up description, handle potential None and extra whitespace/newlines
+                    description = (tool.get('description') or 'No description available.').strip()
+                    params_schema = tool.get('parameters') # This is the schema dict
+                else:
+                    # Object with attributes
+                    name = getattr(tool, 'name', 'N/A')
+                    # Clean up description, handle potential None and extra whitespace/newlines
+                    description = (getattr(tool, 'description', None) or 'No description available.').strip()
+                    params_schema = getattr(tool, 'schema', None) # This is the schema dict
 
                 # Format parameters simply - just list names if available
                 param_str = " (No parameters)"
@@ -625,6 +685,17 @@ def list_mcp_server_tools():
                     # Handle case where 'properties' exists but is empty
                     elif not param_names:
                          param_str = " (No parameters)"
+                # Handle case where tool has args_schema attribute (for CustomMCPTool objects)
+                elif hasattr(tool, 'args_schema') and tool.args_schema:
+                    try:
+                        # Try to get schema from args_schema
+                        schema = tool.args_schema.schema()
+                        if 'properties' in schema and schema['properties']:
+                            param_names = builtins.list(schema['properties'].keys())
+                            if param_names:
+                                param_str = f" (Parameters: {', '.join(param_names)})"
+                    except Exception as e:
+                        logger.debug(f"Error getting parameters from args_schema: {e}")
 
                 print(f"  - {name}{param_str}")
                 # Indent description for readability, handle multi-line descriptions
@@ -640,8 +711,13 @@ def list_mcp_server_tools():
         print("\n--------------------")
 
     except Exception as e:
-        logger.error(f"Error listing MCP tools: {e}", exc_info=True) # Log full traceback
+        # Log at INFO level instead of ERROR so it only shows with -v flag
+        logger.info(f"Error listing MCP tools: {e}", exc_info=True) # Log full traceback
         print(f"An error occurred while listing MCP tools. Check logs for details.")
+    finally:
+        # Properly shut down MCP clients to avoid "unhandled errors in a TaskGroup" message
+        if agent:
+            asyncio.run(agent.shutdown_mcp_clients())
     return None
 
 

@@ -6,7 +6,7 @@ from typing import Dict, Any, List, Optional
 import aiohttp
 from pydantic import Field, PrivateAttr
 
-from .base import BaseTool
+from .basetool import BaseTool
 
 class WebSearchTool(BaseTool):
     """Tool for searching the web."""

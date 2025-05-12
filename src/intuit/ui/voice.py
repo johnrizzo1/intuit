@@ -118,5 +118,9 @@ class VoiceInterface:
 
 async def run_voice(agent: Agent) -> None:
     """Run the voice interface."""
-    interface = VoiceInterface(agent)
-    await interface.run() 
+    try:
+        interface = VoiceInterface(agent)
+        await interface.run()
+    finally:
+        # Properly shut down MCP clients to avoid "unhandled errors in a TaskGroup" message
+        await agent.shutdown_mcp_clients()

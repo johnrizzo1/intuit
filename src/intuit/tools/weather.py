@@ -6,7 +6,7 @@ import aiohttp
 from typing import Dict, Any, Optional, Tuple
 from pydantic import Field, PrivateAttr
 
-from .base import BaseTool
+from .basetool import BaseTool
 
 class WeatherTool(BaseTool):
     """Tool for getting weather information."""
