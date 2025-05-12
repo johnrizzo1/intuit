@@ -33,6 +33,12 @@ dependencies = [
     "pypdf2>=3.0.0",
     "soundfile>=0.13.1",
     "pytest>=8.3.5",
+    "pyperclip>=1.8.2", # Add pyperclip dependency
+    "fastmcp>=2.3.0", # For MCP Server
+    "mcp-client>=0.2.0",
+    "mcp>=1.8.0",
+    "pyautogui>=0.9.54",
+    "pillow>=11.2.1",
 ]
 
 [project.scripts]

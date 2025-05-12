@@ -23,27 +23,35 @@ The Reminders Tool can be accessed via the Command Line Interface (CLI) and the 
 The reminders tool is accessed using the `reminders` command, with subcommands for each action:
 
 - **Add a reminder:**
+
   ```bash
   intuit reminders add "Call Mom" --time "2025-12-25T18:00:00"
   ```
+
   This will add a new reminder with the provided content and a specific reminder time in ISO 8601 format. If `--time` is omitted, the reminder will be added without a specific time. The output will provide the unique ID of the added reminder.
 
 - **List all reminders:**
+
   ```bash
   intuit reminders list
   ```
+
   This will display a list of all stored reminders, including their IDs, content, timestamps, and reminder times (if set).
 
 - **Search for reminders:**
+
   ```bash
   intuit reminders search "call"
   ```
+
   This will search for all reminders containing the keyword "call" in their content and display the matching reminders.
 
 - **Delete a reminder:**
+
   ```bash
   intuit reminders delete [reminder_id]
   ```
+
   Replace `[reminder_id]` with the unique ID of the reminder you want to delete (obtained from the `list` or `add` commands).
 
 ### Voice Usage

@@ -4,35 +4,40 @@ This document tracks the current work focus, recent changes, next steps, active 
 
 ## Current Work Focus
 
-Implementing local productivity tools (calendar, notes, reminders) using Pydantic models and JSON file storage.
+Implementing Model Context Protocol (MCP) integration to enable Intuit to function as both an MCP client and server.
 
 ## Recent Changes
 
-- Implemented core logic, CLI/voice integration, and unit tests for Calendar, Notes, and Reminders tools.
-- Defined file structure and naming conventions for all three tools.
-- Updated implementation plan to reflect completed steps and the change to Pydantic/JSON storage.
-- Documented Calendar, Notes, and Reminders tools.
+- Completed implementation of local productivity tools (Calendar, Notes, Reminders) with Pydantic models and JSON storage.
+- Documented all productivity tools.
+- Created a new implementation plan for MCP integration.
+- Moved projectbrief.md into the memory-bank directory.
 
 ## Next Steps
 
-- Document the Reminders tool. (Correction: This was just completed, will update in next step)
-- Implement logic for triggering reminders at the specified time (requires background process consideration).
-- Address general tasks: update memory bank files, ensure consistent error handling, review/refactor code.
+- Create a base MCP server module (`src/intuit/mcp_server.py`).
+- Implement FastMCP server initialization and configuration.
+- Expose existing tools as MCP resources.
+- Create a screenshot tool as an example MCP implementation.
+- Update the agent to support MCP tools.
 
 ## Active Decisions and Considerations
 
-- All productivity tools are managed locally using Pydantic models and JSON files.
-- Both CLI and voice interfaces are supported for implemented features.
-- Reminder triggering will require a background process.
+- MCP will be used to expose Intuit's tools to external AI agents.
+- MCP will also allow Intuit to connect to and use external MCP servers.
+- The implementation will follow the pattern shown in the Python SDK examples.
+- When the user runs a command, it should start the MCP server and then the decorated function will call the MCP server.
 
 ## Important Patterns and Preferences
 
-- Consistent Pydantic/JSON storage pattern across productivity tools.
+- Modular design for tools with consistent interfaces.
 - Unified backend logic for CLI and voice commands.
-- Modular design for tools.
+- MCP protocol for tool integration.
+- Consistent error handling and user feedback.
 
 ## Learnings and Project Insights
 
 - Using Pydantic and JSON provides a structured approach to local data storage.
 - Integrating tools with the agent simplifies CLI and voice access.
-- Implementing background processes for features like reminders requires careful consideration of architecture.
+- The MCP protocol provides a standardized way for AI models to interact with external tools and resources.
+- Implementing both client and server MCP functionality will make Intuit more versatile and extensible.

@@ -10,15 +10,18 @@ This document tracks what works, what's left to build, the current status, known
 - File indexing function created for query enrichment.
 - Local Calendar tool implemented (add, list, search, delete) using Pydantic/JSON.
 - Local Notes tool implemented (add, list, search, delete) using Pydantic/JSON.
-- Local Reminders tool core logic implemented (add, list, search, delete) using Pydantic/JSON.
+- Local Reminders tool implemented (add, list, search, delete) using Pydantic/JSON.
 - CLI and voice integration for Calendar, Notes, and Reminders tools.
 - Unit tests for Calendar, Notes, and Reminders tools core logic.
 - Documentation for Calendar, Notes, and Reminders tools.
+- Background process for reminder triggering implemented.
 
 ## What's Left to Build
 
-- Implement logic for triggering reminders at the specified time (requires background process consideration).
-- Document the Reminders tool. (Correction: This was just completed, will update in next step)
+- Implement MCP server functionality to expose Intuit's tools as MCP resources.
+- Implement MCP client functionality to connect to external MCP servers.
+- Create a screenshot tool using MCP as an example implementation.
+- Update the agent to support MCP tools.
 - Expand tool/plugin ecosystem (beyond productivity tools).
 - Enhance vector database capabilities.
 - Optimize performance and latency.
@@ -27,8 +30,8 @@ This document tracks what works, what's left to build, the current status, known
 
 ## Current Status
 
-- Core system and basic productivity tools operational.
-- Project is in the phase of implementing advanced features and general improvements.
+- Core system and productivity tools are fully operational.
+- Project is transitioning to implementing MCP integration for enhanced extensibility.
 
 ## Known Issues
 
@@ -38,4 +41,6 @@ This document tracks what works, what's left to build, the current status, known
 
 - Shifted from initial setup to implementing core features and productivity tools.
 - Adopted Pydantic and JSON for structured local data storage.
-- Next major focus is implementing background processes for features like reminder triggering.
+- Successfully completed the productivity tools milestone.
+- New focus on implementing MCP integration to enable both client and server functionality.
+- Planning to use the MCP protocol as a standardized way for AI models to interact with external tools and resources.
