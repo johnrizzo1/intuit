@@ -117,34 +117,49 @@ class FilesystemTool(BaseTool):
             path = Path(".")
             basic_results: List[Dict[str, Any]] = []
             
-            # Convert query to lowercase for case-insensitive search
-            query_lower = query.lower()
-            
-            # Search through all files
-            for file_path in path.rglob("*"):
-                if file_path.is_file():
-                    try:
-                        # Check if query is in filename
-                        if query_lower in file_path.name.lower():
-                            filename_info: Dict[str, Any] = await self._get_file_info(str(file_path))
-                            basic_results.append(filename_info)
-                            continue
-                            
-                        # Check if query is in file content
+            # Handle empty query or wildcard query to list all files
+            if not query or query == '*':
+                # List all files in the directory
+                for file_path in path.rglob("*"):
+                    if file_path.is_file():
                         try:
-                            content = file_path.read_text().lower()
-                            if query_lower in content:
-                                content_info: Dict[str, Any] = await self._get_file_info(str(file_path))
-                                basic_results.append(content_info)
-                        except UnicodeDecodeError:
-                            # Skip binary files
-                            continue
+                            file_info: Dict[str, Any] = await self._get_file_info(str(file_path))
+                            basic_results.append(file_info)
                             
-                        if len(basic_results) >= limit:
-                            break
-                    except Exception as e:
-                        logger.warning("Error processing file %s: %s", file_path, str(e))
-                        continue
+                            if len(basic_results) >= limit:
+                                break
+                        except Exception as e:
+                            logger.warning("Error processing file %s: %s", file_path, str(e))
+                            continue
+            else:
+                # Convert query to lowercase for case-insensitive search
+                query_lower = query.lower()
+                
+                # Search through all files
+                for file_path in path.rglob("*"):
+                    if file_path.is_file():
+                        try:
+                            # Check if query is in filename
+                            if query_lower in file_path.name.lower():
+                                filename_info: Dict[str, Any] = await self._get_file_info(str(file_path))
+                                basic_results.append(filename_info)
+                                continue
+                                
+                            # Check if query is in file content
+                            try:
+                                content = file_path.read_text().lower()
+                                if query_lower in content:
+                                    content_info: Dict[str, Any] = await self._get_file_info(str(file_path))
+                                    basic_results.append(content_info)
+                            except UnicodeDecodeError:
+                                # Skip binary files
+                                continue
+                                
+                            if len(basic_results) >= limit:
+                                break
+                        except Exception as e:
+                            logger.warning("Error processing file %s: %s", file_path, str(e))
+                            continue
             
             logger.info("Found %d results using basic search", len(basic_results))
             return basic_results
@@ -169,12 +184,13 @@ class FilesystemTool(BaseTool):
             path: File or directory path (defaults to current directory)
             content: Content to write (for write action)
             recursive: List directory recursively
-            query: Search query (for search action)
+            query: Search query (for search action, use empty string or '*' to list all indexed files)
             limit: Maximum number of search results
             
         Returns:
             Dict containing operation results
         """
+        logger.info(f"FilesystemTool.run called with action={action}, path={path}, query={query}, limit={limit}")
         logger.info("Running filesystem operation: %s", action)
         try:
             if action == "list":
@@ -208,12 +224,32 @@ class FilesystemTool(BaseTool):
                     "file": file_info
                 }
             elif action == "search":
-                if not query:
-                    raise ValueError("Query required for search action")
-                results = await self._search_files(query, limit)
+                # Allow empty query to list all indexed files
+                query_str = query if query else ""
+                logger.info(f"FilesystemTool.run: Executing search with query='{query_str}', limit={limit}")
+                
+                # Check if vector store is available
+                if self._vector_store:
+                    logger.info("FilesystemTool.run: Vector store is available for search")
+                else:
+                    logger.warning("FilesystemTool.run: Vector store is NOT available for search")
+                
+                results = await self._search_files(query_str, limit)
+                logger.info(f"FilesystemTool.run: Search returned {len(results)} results")
+                
+                # Customize message based on query
+                if not query or query == '*':
+                    message = f"Found {len(results)} indexed files"
+                else:
+                    message = f"Found {len(results)} results for '{query}'"
+                
+                # Log the results for debugging
+                for i, result in enumerate(results):
+                    logger.info(f"FilesystemTool.run: Result {i+1}: {result.get('name', 'Unknown')} - {result.get('path', 'Unknown path')}")
+                    
                 return {
                     "status": "success",
-                    "message": f"Found {len(results)} results for '{query}'",
+                    "message": message,
                     "results": results
                 }
             else:

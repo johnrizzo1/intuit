@@ -230,10 +230,12 @@ class VectorStore:
         # Delete existing chunks for this file
         try:
             self.collection.delete(where={"file_path": str(file_path)})
+            logger.info(f"Deleted existing chunks for {file_path}")
         except Exception as e:
             logger.error(f"Error deleting existing chunks for {file_path}: {e}")
         
         # Add chunks to collection
+        added_chunks = 0
         for i, chunk in enumerate(chunks):
             chunk_id = f"{file_path}_{i}"
             try:
@@ -243,8 +245,11 @@ class VectorStore:
                     metadatas=[base_metadata],
                     ids=[chunk_id]
                 )
+                added_chunks += 1
             except Exception as e:
                 logger.error(f"Error adding chunk {i} from {file_path}: {e}")
+                
+        logger.info(f"Successfully added {added_chunks} chunks out of {len(chunks)} for {file_path}")
         
         # Update file metadata cache
         self._update_file_metadata(file_path, len(chunks))
@@ -261,19 +266,35 @@ class VectorStore:
         exclude_patterns = exclude_patterns or []
         
         try:
-            for file_path in directory.rglob("*"):
-                if file_path.is_file():
-                    # Skip excluded files
-                    if any(file_path.match(pattern) for pattern in exclude_patterns):
-                        logger.debug(f"Skipping excluded file: {file_path}")
-                        continue
-                        
-                    # Skip hidden files and directories
-                    if any(part.startswith('.') for part in file_path.parts):
-                        logger.debug(f"Skipping hidden file: {file_path}")
-                        continue
-                        
-                    await self.index_file(file_path)
+            # Count files to be indexed
+            files_to_index = [f for f in directory.rglob("*")
+                             if f.is_file()
+                             and not any(f.match(pattern) for pattern in exclude_patterns)
+                             and not any(part.startswith('.') for part in f.parts)]
+            
+            logger.info(f"Found {len(files_to_index)} files to index in {directory}")
+            
+            for file_path in files_to_index:
+                # Skip excluded files
+                if any(file_path.match(pattern) for pattern in exclude_patterns):
+                    logger.debug(f"Skipping excluded file: {file_path}")
+                    continue
+                    
+                # Skip hidden files and directories
+                if any(part.startswith('.') for part in file_path.parts):
+                    logger.debug(f"Skipping hidden file: {file_path}")
+                    continue
+                
+                logger.info(f"Indexing file: {file_path}")
+                await self.index_file(file_path)
+                
+            # Get collection count after indexing
+            try:
+                count = self.collection.count()
+                logger.info(f"Collection now contains {count} documents after indexing")
+            except Exception as e:
+                logger.error(f"Error getting collection count: {e}")
+                
             logger.info(f"Finished indexing directory: {directory}")
         except Exception as e:
             logger.error(f"Error indexing directory {directory}: {e}")
@@ -283,7 +304,7 @@ class VectorStore:
         Search the vector store for relevant documents.
         
         Args:
-            query: Search query
+            query: Search query (use empty string or '*' to list all indexed files)
             n_results: Number of results to return
             
         Returns:
@@ -291,7 +312,45 @@ class VectorStore:
         """
         logger.info(f"Searching for: {query}")
         try:
-            # Use synchronous query method
+            # Handle empty query or wildcard query to list all indexed files
+            if not query or query == '*':
+                logger.info("Empty or wildcard query, listing all indexed files")
+                try:
+                    # Get all documents from the collection
+                    logger.info("Attempting to list all indexed files")
+                    results = self.collection.get(
+                        where={},
+                        limit=n_results
+                    )
+                    
+                    logger.info(f"Raw results from collection.get(): {results}")
+                    
+                    documents = []
+                    if results and 'documents' in results and results['documents']:
+                        for i in range(len(results['documents'])):
+                            doc = Document(
+                                content=results['documents'][i],
+                                metadata=results['metadatas'][i],
+                                id=results['ids'][i]
+                            )
+                            documents.append(doc)
+                        
+                        logger.info(f"Found {len(documents)} indexed files")
+                        return documents
+                    else:
+                        logger.info("No indexed files found in the collection")
+                        # Try to get collection info
+                        try:
+                            count = self.collection.count()
+                            logger.info(f"Collection contains {count} documents")
+                        except Exception as e:
+                            logger.error(f"Error getting collection count: {e}")
+                        return []
+                except Exception as e:
+                    logger.error(f"Error listing all indexed files: {e}")
+                    return []
+            
+            # Use synchronous query method for normal search
             results = self.collection.query(
                 query_texts=[query],
                 n_results=n_results

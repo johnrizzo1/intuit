@@ -21,15 +21,24 @@ from intuit.tools.weather import WeatherTool
 from intuit.tools.web_search import WebSearchTool
 from intuit.tools.filesystem import FilesystemTool
 from intuit.tools.hackernews import HackerNewsTool
+from intuit.vector_store.indexer import VectorStore
 
 logger = logging.getLogger(__name__)
 
 # Create server instance with log_level set to ERROR to reduce verbosity
-mcp_server = FastMCP("Intuit Tools", dependencies=["pyautogui", "Pillow", "pydantic"], log_level="ERROR")
+mcp_server = FastMCP("Intuit Tools", dependencies=["pyautogui", "Pillow", "pydantic", "chromadb"], log_level="ERROR")
 
 # Server configuration
 DEFAULT_SERVER_HOST = "localhost"
 DEFAULT_SERVER_PORT = 8000
+
+# Initialize vector store for RAG pipeline
+try:
+    vector_store = VectorStore()
+    logger.info("Vector store initialized for MCP server")
+except Exception as e:
+    logger.error(f"Failed to initialize vector store: {e}")
+    vector_store = None
 
 # --- Tool Definitions ---
 
@@ -202,7 +211,8 @@ def web_search(query: str, max_results: int = 5) -> str:
 @mcp_server.tool()
 def filesystem_tool() -> FilesystemTool:
     """Filesystem access tool"""
-    return FilesystemTool()
+    # Use the vector store if available
+    return FilesystemTool(vector_store=vector_store)
 
 @mcp_server.tool()
 def filesystem_list(path: str) -> str:
@@ -216,7 +226,7 @@ def filesystem_list(path: str) -> str:
         Directory contents
     """
     logger.info(f"MCP: Listing directory: {path}")
-    filesystem_tool = FilesystemTool()
+    filesystem_tool = FilesystemTool(vector_store=vector_store)
     return str(filesystem_tool.list_directory(path))
 
 @mcp_server.tool()
@@ -231,7 +241,7 @@ def filesystem_read(path: str) -> str:
         File contents
     """
     logger.info(f"MCP: Reading file: {path}")
-    filesystem_tool = FilesystemTool()
+    filesystem_tool = FilesystemTool(vector_store=vector_store)
     return str(filesystem_tool.read_file(path))
 
 @mcp_server.tool()
@@ -247,7 +257,7 @@ def filesystem_write(path: str, content: str) -> str:
         Confirmation message
     """
     logger.info(f"MCP: Writing to file: {path}")
-    filesystem_tool = FilesystemTool()
+    filesystem_tool = FilesystemTool(vector_store=vector_store)
     return str(filesystem_tool.write_file(path, content))
 
 @mcp_server.tool()
@@ -263,7 +273,7 @@ def filesystem_search(path: str, query: str) -> str:
         Search results
     """
     logger.info(f"MCP: Searching for: {query} in {path}")
-    filesystem_tool = FilesystemTool()
+    filesystem_tool = FilesystemTool(vector_store=vector_store)
     return str(filesystem_tool.search(path, query))
 
 @mcp_server.tool()

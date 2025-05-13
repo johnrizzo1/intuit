@@ -265,10 +265,19 @@ async def create_agent(
     logger.info("- OpenAI API Type: %s", openai_api_type)
     logger.info("- OpenAI API Version: %s", openai_api_version)
 
-    # We'll use an empty list of tools since we'll be using MCP tools exclusively
+    # Initialize tools list
     tools = []
     
-    # Initialize vector store if requested (we'll still need this for the MCP filesystem tool)
+    # Import tools here to ensure they're in scope
+    from .tools.filesystem import FilesystemTool
+    from .tools.web_search import WebSearchTool
+    from .tools.gmail import GmailTool
+    from .tools.weather import WeatherTool
+    from .tools.calendar import CalendarTool
+    from .tools.notes import NotesTool
+    from .tools.reminders import RemindersTool
+    
+    # Initialize vector store if requested
     vector_store = None
     if index_filesystem:
         logger.info("Initializing vector store")
@@ -279,6 +288,16 @@ async def create_agent(
         else:
             logger.info("Indexing home directory")
             await vector_store.index_directory(Path.home())
+        
+        # Create FilesystemTool with vector store for RAG pipeline
+        logger.info("Creating FilesystemTool with vector store")
+        filesystem_tool = FilesystemTool(vector_store=vector_store)
+        tools.append(filesystem_tool)
+    else:
+        # Create FilesystemTool without vector store
+        logger.info("Creating FilesystemTool without vector store")
+        filesystem_tool = FilesystemTool()
+        tools.append(filesystem_tool)
 
     # Create agent configuration
     config = AgentConfig(

@@ -238,6 +238,35 @@ class Agent:
                                     logger.info(f"Error taking screenshot: {e}")
                                     return f"Error taking screenshot: {e}"
                             
+                            # Filesystem tools
+                            elif self.tool_name == "filesystem_search":
+                                filesystem_tool = FilesystemTool()
+                                
+                                # Log the parameters for debugging
+                                logger.info(f"Running filesystem_search with parameters: {param_str}")
+                                
+                                # Set default values
+                                path = kwargs.get("path", ".")
+                                query = kwargs.get("query", "")
+                                limit = kwargs.get("limit", 5)
+                                
+                                # Run the search
+                                logger.info(f"Executing filesystem search with path={path}, query='{query}', limit={limit}")
+                                result = filesystem_tool.run(action="search", path=path, query=query, limit=limit)
+                                
+                                # Log the result for debugging
+                                logger.info(f"Filesystem search result: {result}")
+                                
+                                # Format the results
+                                if result and "results" in result and result["results"]:
+                                    formatted_results = []
+                                    for i, file_info in enumerate(result["results"]):
+                                        formatted_results.append(f"{i+1}. {file_info.get('name', 'Unknown')} - {file_info.get('path', 'Unknown path')}")
+                                    
+                                    return f"Found {len(result['results'])} files:\n\n" + "\n".join(formatted_results)
+                                else:
+                                    return "No files found matching your query."
+                            
                             # If no specific implementation, return a generic message
                             return f"Tool {self.tool_name} called with parameters: {param_str}"
                         
@@ -265,6 +294,14 @@ class Agent:
                         tool_name="calendar_search"
                     )
                     self.mcp_tools.append(calendar_search)
+                    
+                    # Filesystem tools
+                    filesystem_search = CustomMCPTool(
+                        name="mcp_filesystem_search",
+                        description="Search for files by content or list all indexed files",
+                        tool_name="filesystem_search"
+                    )
+                    self.mcp_tools.append(filesystem_search)
                     
                     # Notes tools
                     notes_add = CustomMCPTool(
@@ -388,6 +425,28 @@ You have access to various tools to help the user:
 7. Reminders management for adding, listing, searching, and deleting reminders, including setting a specific time.
 8. Desktop automation for interacting with the operating system, such as accessing the clipboard.
 9. Hacker News integration for fetching top stories, new stories, best stories, and story details.
+
+IMPORTANT: When users ask about files you know about, indexed files, or what files you're aware of, you MUST use the filesystem tool with the "search" action. The filesystem tool has semantic search capabilities through its vector store.
+
+To list or search for indexed files, use the filesystem tool with these parameters:
+- action: 'search'
+- path: '.' (for current directory)
+- query: Different query types produce different behaviors:
+  * '*' or '' (empty string): Lists all indexed files
+  * Specific search terms: Performs semantic search to find relevant documents
+  * Natural language queries: Finds documents related to the query, even if they don't contain the exact words
+
+For example:
+1. If a user asks "What files are you aware of?" or "List the files you know of", use:
+   action='search', path='.', query=''
+
+2. If a user asks "Find files about Python" or "Show me documents related to machine learning", use:
+   action='search', path='.', query='Python' or query='machine learning'
+
+3. If a user asks "Find documents that explain how to implement a neural network", use:
+   action='search', path='.', query='implement neural network'
+
+Always format and present the results to the user in a clear and organized way.
 
 IMPORTANT: When users ask about Hacker News, news, or latest tech stories, you MUST use the hackernews tool. The hackernews tool provides access to content from Hacker News.
 
@@ -1077,7 +1136,44 @@ Always be concise and clear in your responses.'''),
         logger.info("Processing input: %s", user_input)
 
         # Check for special commands
-        if user_input.lower().strip() in ["list all available mcp tools", "list mcp tools", "show mcp tools"]:
+        if user_input.lower().strip() in ["list all indexed files", "what files are you aware of", "list the files you know of"]:
+            logger.info("Detected request to list indexed files")
+            
+            # Try to find the filesystem tool
+            filesystem_tool = None
+            for tool in self.tools:
+                if hasattr(tool, 'name') and tool.name == "filesystem":
+                    filesystem_tool = tool
+                    logger.info("Found filesystem tool in tools list")
+                    break
+            
+            # If we found a filesystem tool, use it directly
+            if filesystem_tool:
+                logger.info("Using filesystem tool directly")
+                try:
+                    # Use the async version of the tool's run method
+                    result = await filesystem_tool._arun(action="search", path=".", query="", limit=10)
+                    logger.info(f"Filesystem tool result: {result}")
+                    
+                    if result and "results" in result and result["results"]:
+                        formatted_results = []
+                        for i, file_info in enumerate(result["results"]):
+                            formatted_results.append(f"{i+1}. {file_info.get('name', 'Unknown')} - {file_info.get('path', 'Unknown path')}")
+                        
+                        output = f"Found {len(result['results'])} indexed files:\n\n" + "\n".join(formatted_results)
+                    else:
+                        output = "No indexed files found."
+                        
+                    # Update chat history
+                    self.chat_history.append(HumanMessage(content=user_input))
+                    self.chat_history.append(AIMessage(content=output))
+                    
+                    return output
+                except Exception as e:
+                    logger.error(f"Error using filesystem tool directly: {e}")
+                    # Fall back to normal agent execution
+            
+        elif user_input.lower().strip() in ["list all available mcp tools", "list mcp tools", "show mcp tools"]:
             # If we're asking for MCP tools but don't have any yet, try to get them from the MCP server directly
             if not self.mcp_tools and self.mcp_clients:
                 logger.info("No MCP tools registered yet, trying to get them directly from the server")

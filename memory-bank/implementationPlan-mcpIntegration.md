@@ -13,63 +13,63 @@ The Model Context Protocol (MCP) enables communication between AI models and ext
 
 ### MCP Server Implementation
 
-- [ ] Create a base MCP server module (`src/intuit/mcp_server.py`)
-  - [ ] Implement FastMCP server initialization
-  - [ ] Define server configuration options
-  - [ ] Create server start/stop functionality
+- [x] Create a base MCP server module (`src/intuit/mcp_server.py`)
+  - [x] Implement FastMCP server initialization
+  - [x] Define server configuration options
+  - [x] Create server start/stop functionality
 
-- [ ] Expose existing tools as MCP resources
-  - [ ] Create MCP tool wrappers for Calendar tool
-  - [ ] Create MCP tool wrappers for Notes tool
-  - [ ] Create MCP tool wrappers for Reminders tool
-  - [ ] Create MCP tool wrappers for Weather tool
-  - [ ] Create MCP tool wrappers for Web Search tool
-  - [ ] Create MCP tool wrappers for Filesystem tool
+- [x] Expose existing tools as MCP resources
+  - [x] Create MCP tool wrappers for Calendar tool
+  - [x] Create MCP tool wrappers for Notes tool
+  - [x] Create MCP tool wrappers for Reminders tool
+  - [x] Create MCP tool wrappers for Weather tool
+  - [x] Create MCP tool wrappers for Web Search tool
+  - [x] Create MCP tool wrappers for Filesystem tool
 
-- [ ] Implement server discovery mechanism
-  - [ ] Add server registration with the agent
-  - [ ] Create endpoint for listing available tools
+- [x] Implement server discovery mechanism
+  - [x] Add server registration with the agent
+  - [x] Create endpoint for listing available tools
 
-- [ ] Add CLI commands for MCP server management
-  - [ ] Add command to start the MCP server
-  - [ ] Add command to list available MCP tools
-  - [ ] Add command to stop the MCP server
+- [x] Add CLI commands for MCP server management
+  - [x] Add command to start the MCP server
+  - [x] Add command to list available MCP tools
+  - [x] Add command to stop the MCP server
 
 ### MCP Client Implementation
 
-- [ ] Create MCP client functionality in the agent
-  - [ ] Implement connection to external MCP servers
-  - [ ] Add support for discovering available tools on connected servers
-  - [ ] Create tool wrappers for external MCP tools
+- [x] Create MCP client functionality in the agent
+  - [x] Implement connection to external MCP servers
+  - [x] Add support for discovering available tools on connected servers
+  - [x] Create tool wrappers for external MCP tools
 
-- [ ] Add CLI commands for MCP client management
-  - [ ] Add command to connect to an external MCP server
-  - [ ] Add command to list connected MCP servers
-  - [ ] Add command to disconnect from an MCP server
+- [x] Add CLI commands for MCP client management
+  - [x] Add command to connect to an external MCP server
+  - [x] Add command to list connected MCP servers
+  - [x] Add command to disconnect from an MCP server
 
 ### Integration with Agent
 
-- [ ] Update agent to support MCP tools
-  - [ ] Modify `_create_agent_executor` to handle MCP tools
-  - [ ] Update system prompt to include MCP tool usage instructions
-  - [ ] Add MCP tool execution logic
+- [x] Update agent to support MCP tools
+  - [x] Modify `_create_agent_executor` to handle MCP tools
+  - [x] Update system prompt to include MCP tool usage instructions
+  - [x] Add MCP tool execution logic
 
-- [ ] Implement automatic MCP server startup
-  - [ ] Start MCP server when agent is initialized (if configured)
-  - [ ] Register agent tools with the MCP server
+- [x] Implement automatic MCP server startup
+  - [x] Start MCP server when agent is initialized (if configured)
+  - [x] Register agent tools with the MCP server
 
 ### Example: Screenshot Tool Implementation
 
-- [ ] Create a screenshot tool using MCP
-  - [ ] Implement tool using pyautogui for capturing screenshots
-  - [ ] Expose the tool via MCP server
-  - [ ] Add CLI command for taking screenshots
-  - [ ] Add voice command support for taking screenshots
+- [x] Create a screenshot tool using MCP
+  - [x] Implement tool using pyautogui for capturing screenshots
+  - [x] Expose the tool via MCP server
+  - [x] Add CLI command for taking screenshots
+  - [x] Add voice command support for taking screenshots
 
 ## General Tasks
 
-- [ ] Update `activeContext.md` and `progress.md` as milestones are completed
+- [x] Update `activeContext.md` and `progress.md` as milestones are completed
 - [ ] Document MCP integration in README.md
 - [ ] Create usage examples for MCP tools
 - [ ] Write unit tests for MCP server and client functionality
-- [ ] Ensure proper error handling and user feedback
+- [x] Ensure proper error handling and user feedback
