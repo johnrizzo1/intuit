@@ -169,7 +169,17 @@ class Agent:
                         def _run(self, **kwargs):
                             # Log the parameters received
                             param_str = ", ".join([f"{k}={v}" for k, v in kwargs.items()]) if kwargs else "no parameters"
-                            logger.info(f"Running {self.tool_name} with parameters: {param_str}")
+                            
+                            # Get the caller's information
+                            import inspect
+                            caller_frame = inspect.currentframe().f_back
+                            caller_info = ""
+                            if caller_frame:
+                                caller_module = inspect.getmodule(caller_frame)
+                                if caller_module:
+                                    caller_info = f" (called from {caller_module.__name__})"
+                            
+                            logger.info(f"CustomMCPTool._run for {self.tool_name} with parameters: {param_str}{caller_info}")
                             
                             # Calendar tools
                             if self.tool_name == "calendar_add":
@@ -271,6 +281,17 @@ class Agent:
                             return f"Tool {self.tool_name} called with parameters: {param_str}"
                         
                         async def _arun(self, config=None, **kwargs):
+                            # Get the caller's information
+                            import inspect
+                            caller_frame = inspect.currentframe().f_back
+                            caller_info = ""
+                            if caller_frame:
+                                caller_module = inspect.getmodule(caller_frame)
+                                if caller_module:
+                                    caller_info = f" (called from {caller_module.__name__})"
+                            
+                            param_str = ", ".join([f"{k}={v}" for k, v in kwargs.items()]) if kwargs else "no parameters"
+                            logger.info(f"CustomMCPTool._arun for {self.tool_name} with parameters: {param_str}{caller_info}")
                             return self._run(**kwargs)
                     
                     # Calendar tools
@@ -1462,7 +1483,16 @@ class MCPToolWrapper(BaseTool):
         Executes the wrapped MCP tool asynchronously.
         kwargs are the arguments for the tool.
         """
-        logger.info(f"Executing MCP tool '{self.name}' (server tool: '{self.tool_name_on_server}') with args: {kwargs}")
+        # Get the caller's information
+        import inspect
+        caller_frame = inspect.currentframe().f_back
+        caller_info = ""
+        if caller_frame:
+            caller_module = inspect.getmodule(caller_frame)
+            if caller_module:
+                caller_info = f" (called from {caller_module.__name__})"
+        
+        logger.info(f"MCPToolWrapper._arun for '{self.name}' (server tool: '{self.tool_name_on_server}') with args: {kwargs}{caller_info}")
         
         # Check if the client is available
         if self.client is None:
@@ -1485,6 +1515,15 @@ class MCPToolWrapper(BaseTool):
     # _run is not strictly necessary if _arun is implemented and used by AgentExecutor
     def _run(self, **kwargs: Any) -> str:
         """Synchronous execution (optional, falls back to _arun if not implemented by BaseTool)."""
-        logger.warning(f"Synchronous execution of MCP tool '{self.name}' called. Consider using async.")
+        # Get the caller's information
+        import inspect
+        caller_frame = inspect.currentframe().f_back
+        caller_info = ""
+        if caller_frame:
+            caller_module = inspect.getmodule(caller_frame)
+            if caller_module:
+                caller_info = f" (called from {caller_module.__name__})"
+        
+        logger.warning(f"MCPToolWrapper._run for '{self.name}' (server tool: '{self.tool_name_on_server}') with args: {kwargs}{caller_info}. Consider using async.")
         # This is a simple bridge. For true sync execution, MCPClient would need a sync method.
         return asyncio.run(self._arun(**kwargs))

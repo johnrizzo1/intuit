@@ -263,4 +263,14 @@ class FilesystemTool(BaseTool):
     
     async def _arun(self, **kwargs) -> Any:
         """Run the tool asynchronously."""
-        return await self.run(**kwargs) 
+        # Get the caller's information
+        import inspect
+        caller_frame = inspect.currentframe().f_back
+        caller_info = ""
+        if caller_frame:
+            caller_module = inspect.getmodule(caller_frame)
+            if caller_module:
+                caller_info = f" (called from {caller_module.__name__})"
+        
+        logger.info(f"FilesystemTool._arun called with {kwargs}{caller_info}")
+        return await self.run(**kwargs)

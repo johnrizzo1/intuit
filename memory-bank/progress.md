@@ -53,6 +53,7 @@ This document tracks what works, what's left to build, the current status, known
 - Added missing CustomMCPTool for the filesystem_search tool in the agent.py file, allowing the agent to use the filesystem tool when asked to list all indexed files.
 - Added a special case in the agent's process_input method to directly use the filesystem tool when the user asks to list all indexed files, bypassing the agent_executor.
 - Fixed the special case to use the async version of the tool's run method (_arun) instead of the synchronous version (_run) to handle tools that only support async execution.
+- Added comprehensive logging to all tool methods (FilesystemTool, CustomMCPTool, MCPToolWrapper) to track when and how they are called, including caller information.
 
 ## Evolution of Project Decisions
 

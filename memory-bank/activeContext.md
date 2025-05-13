@@ -74,3 +74,6 @@ Refining and expanding the Model Context Protocol (MCP) integration that enables
 - Adding special cases in the agent's process_input method allows for direct tool usage when needed, providing a more reliable user experience for important commands.
 - When using tools directly, it's important to use the appropriate execution method (_run for synchronous execution or _arun for asynchronous execution) based on the tool's implementation.
 - Some tools only support async execution, requiring the use of the _arun method instead of _run.
+- Comprehensive logging is essential for debugging complex systems, especially when multiple components interact.
+- Adding caller information to logs helps track the flow of execution through the system.
+- Logging both the entry and exit points of methods provides visibility into the system's behavior.
