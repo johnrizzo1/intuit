@@ -14,6 +14,7 @@ The Intuit system includes the following tools:
 6. **NotesTool**: For managing notes
 7. **RemindersTool**: For managing reminders
 8. **HackerNewsTool**: For fetching stories from Hacker News
+9. **Desktop Automation**: For interacting with the operating system (e.g., clipboard functionality) - *Note: This functionality may be implemented as part of the MCP server tools*
 
 ## Testing the Tools
 
@@ -103,3 +104,18 @@ To add tests for a new tool:
 1. Add a new test function in `scripts/test_all_tools.py`
 2. Add the function to the `tests` list in the `main` function
 3. Run the tests to verify that the new tool works correctly
+
+## Test Coverage
+
+Our test script currently covers 8 out of the 9 tools listed in the Intuit system:
+
+1. Web Search (WebSearchTool) ✓
+2. Filesystem Operations (FilesystemTool) ✓
+3. Gmail Integration (GmailTool) ✓
+4. Weather Information (WeatherTool) ✓
+5. Calendar Management (CalendarTool) ✓
+6. Notes Management (NotesTool) ✓
+7. Reminders Management (RemindersTool) ✓
+8. Hacker News Integration (HackerNewsTool) ✓
+
+The "Desktop Automation" functionality is not directly tested as it appears to be implemented as part of the MCP server tools or elsewhere in the codebase.
