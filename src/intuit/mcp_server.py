@@ -22,6 +22,10 @@ from intuit.tools.web_search import WebSearchTool
 from intuit.tools.filesystem import FilesystemTool
 from intuit.tools.hackernews import HackerNewsTool
 from intuit.vector_store.indexer import VectorStore
+from intuit.memory.chroma_store import ChromaMemoryStore
+from intuit.memory.manager import IntuitMemoryManager
+import os
+from intuit.memory.tools import get_memory_tools
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +43,21 @@ try:
 except Exception as e:
     logger.error(f"Failed to initialize vector store: {e}")
     vector_store = None
+
+# Initialize memory store and manager for MCP server
+try:
+    # Use a default model for the memory store
+    default_model = os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini")
+    memory_store = ChromaMemoryStore(model=default_model)
+    logger.info("Memory store initialized for MCP server")
+    # Initialize the memory manager with a default model
+    default_model = os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini")
+    memory_manager = IntuitMemoryManager(store=memory_store, model=default_model)
+    logger.info(f"Memory manager initialized for MCP server with model: {default_model}")
+except Exception as e:
+    logger.error(f"Failed to initialize memory store: {e}")
+    memory_store = None
+    memory_manager = None
 
 # --- Tool Definitions ---
 
@@ -361,6 +380,128 @@ def hackernews_story(item_id: int) -> str:
     logger.info(f"MCP: Getting Hacker News story with ID: {item_id}")
     hackernews_tool = HackerNewsTool()
     return str(hackernews_tool.get_story(item_id))
+
+# Memory tools
+@mcp_server.tool()
+def memory_add(content: str, importance: int = 5, tags: list[str] = None) -> str:
+    """
+    Add a memory to the store.
+    
+    Args:
+        content: The content of the memory
+        importance: Importance level (1-10)
+        tags: Optional tags for categorizing the memory
+        
+    Returns:
+        Memory ID
+    """
+    logger.info(f"MCP: Adding memory: {content}")
+    if memory_store:
+        try:
+            tags = tags or []
+            memory_id = asyncio.run(memory_store.add_memory(
+                content=content,
+                metadata={"importance": importance, "tags": tags}
+            ))
+            return f"Memory added with ID: {memory_id}"
+        except Exception as e:
+            logger.error(f"Error adding memory: {e}")
+            return f"Error adding memory: {str(e)}"
+    return "Memory store not available"
+
+@mcp_server.tool()
+def memory_search(query: str, limit: int = 5) -> str:
+    """
+    Search memories by semantic similarity.
+    
+    Args:
+        query: The search query
+        limit: Maximum number of results to return (default: 5)
+        
+    Returns:
+        Search results
+    """
+    logger.info(f"MCP: Searching memories for: {query}")
+    if memory_store:
+        try:
+            memories = asyncio.run(memory_store.search_memories(query, limit))
+            if not memories:
+                return "No memories found matching your query."
+            
+            result = "Found memories:\n\n"
+            for i, memory in enumerate(memories):
+                result += f"{i+1}. {memory['content']}\n"
+            return result
+        except Exception as e:
+            logger.error(f"Error searching memories: {e}")
+            return f"Error searching memories: {str(e)}"
+    return "Memory store not available"
+
+@mcp_server.tool()
+def memory_get(memory_id: str) -> str:
+    """
+    Get a specific memory by ID.
+    
+    Args:
+        memory_id: The ID of the memory to retrieve
+        
+    Returns:
+        Memory content
+    """
+    logger.info(f"MCP: Getting memory with ID: {memory_id}")
+    if memory_store:
+        try:
+            memory = asyncio.run(memory_store.get_memory(memory_id))
+            if memory:
+                return f"Memory: {memory['content']}"
+            return f"Memory with ID {memory_id} not found."
+        except Exception as e:
+            logger.error(f"Error getting memory: {e}")
+            return f"Error getting memory: {str(e)}"
+    return "Memory store not available"
+
+@mcp_server.tool()
+def memory_delete(memory_id: str) -> str:
+    """
+    Delete a specific memory by ID.
+    
+    Args:
+        memory_id: The ID of the memory to delete
+        
+    Returns:
+        Confirmation message
+    """
+    logger.info(f"MCP: Deleting memory with ID: {memory_id}")
+    if memory_store:
+        try:
+            success = asyncio.run(memory_store.delete_memory(memory_id))
+            if success:
+                return f"Memory with ID {memory_id} deleted."
+            return f"Failed to delete memory with ID {memory_id}."
+        except Exception as e:
+            logger.error(f"Error deleting memory: {e}")
+            return f"Error deleting memory: {str(e)}"
+    return "Memory store not available"
+
+@mcp_server.tool()
+def memory_clear() -> str:
+    """
+    Clear all memories.
+    
+    Returns:
+        Confirmation message
+    """
+    logger.info("MCP: Clearing all memories")
+    if memory_store:
+        try:
+            success = asyncio.run(memory_store.clear_memories())
+            if success:
+                return "All memories cleared."
+            return "Failed to clear memories."
+        except Exception as e:
+            logger.error(f"Error clearing memories: {e}")
+            return f"Error clearing memories: {str(e)}"
+    return "Memory store not available"
 
 # --- Server Management ---
 

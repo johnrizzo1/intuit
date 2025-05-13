@@ -9,6 +9,7 @@ Intuit is a flexible, agentic personal assistant that can be accessed via CLI, v
 - Gmail integration
 - Weather information
 - Local Productivity Tools: Calendar, Notes, and Reminders
+- Persistent memory storage with ChromaDB
 - Voice interface with real-time processing
 - CLI interface with rich text formatting
 - Multi-process support for improved latency
@@ -261,7 +262,51 @@ Here are some examples of how you can use Intuit for common tasks:
   ```bash
   uv run intuit chat "Get the content of my clipboard."
   uv run intuit chat "Read my clipboard."
+  # Take a screenshot
+  uv run intuit chat "Take a screenshot of my screen."
   ```
+
+### Memory Tool (`intuit memory`)
+
+Intuit includes a persistent memory system powered by ChromaDB that allows the assistant to store and retrieve important information across conversations.
+
+- **Add a memory:**
+
+  ```bash
+  uv run intuit memory add "User prefers dark mode" --importance 8 --tags preferences,ui
+  ```
+
+  The `--importance` parameter (1-10) helps prioritize memories, and `--tags` allows for categorization.
+
+- **Search memories:**
+
+  ```bash
+  uv run intuit memory search "user preferences"
+  ```
+
+  This performs a semantic search to find relevant memories, even if they don't contain the exact search terms.
+
+- **Get a specific memory by ID:**
+
+  ```bash
+  uv run intuit memory get <memory_id>
+  ```
+
+  Replace `<memory_id>` with the UUID of the memory you want to retrieve.
+
+- **Delete a memory:**
+
+  ```bash
+  uv run intuit memory delete <memory_id>
+  ```
+
+- **Clear all memories:**
+
+  ```bash
+  uv run intuit memory clear
+  ```
+
+Memories are stored in the `.memory` directory using ChromaDB and persist between sessions, allowing Intuit to maintain context over time.
 
 ## Project Structure
 
@@ -277,6 +322,11 @@ intuit/
 │       ├── main.py     # Typer CLI entry point and tool command definitions
 │       ├── agent.py    # Core agent implementation and tool dispatch
 │       ├── mcp_server.py # MCP Server implementation
+│       ├── memory/     # Memory system implementation
+│       │   ├── __init__.py
+│       │   ├── chroma_store.py # ChromaDB-backed memory store
+│       │   ├── manager.py # Memory manager
+│       │   └── tools.py  # Memory tools
 │       ├── tools/
 │       │   ├── __init__.py
 │       │   ├── base.py

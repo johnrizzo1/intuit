@@ -9,6 +9,9 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime # Import datetime
 from pydantic import BaseModel, Field
 from langchain.agents import AgentExecutor
+from intuit.memory.chroma_store import ChromaMemoryStore
+from intuit.memory.tools import get_memory_tools
+from intuit.memory.manager import IntuitMemoryManager
 from langchain.agents.format_scratchpad import format_to_openai_function_messages
 from langchain.agents.output_parsers import OpenAIFunctionsAgentOutputParser
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -58,6 +61,22 @@ class Agent:
         self.mcp_clients: Dict[str, MCPClient] = {} # Use MCPClient
         self.mcp_client_tasks: Dict[str, asyncio.Task] = {} # Track background tasks for MCP clients
         self.mcp_tools: List[BaseTool] = [] # To store tools from connected MCP servers
+        
+        # Initialize memory store with the model parameter
+        self.memory_store = ChromaMemoryStore(model=self.config.model_name)
+        logger.info("Memory store initialized")
+        
+        # Get memory tools
+        self.memory_tools = get_memory_tools(self.memory_store)
+        logger.info(f"Added {len(self.memory_tools)} memory tools")
+        
+        # Initialize memory manager
+        self.memory_manager = IntuitMemoryManager(self.memory_store)
+        logger.info("Memory manager initialized")
+        
+        # Start background memory processing
+        self.memory_manager.start()
+        logger.info("Background memory manager started")
 
         # Get OpenAI configuration from environment or config
         openai_api_base = (self.config.openai_api_base or os.getenv("OPENAI_API_BASE"))
@@ -84,7 +103,7 @@ class Agent:
 
         self.llm = ChatOpenAI(**openai_kwargs)
 
-        self.tools = tools # These are the agent's own tools
+        self.tools = tools + self.memory_tools # Add memory tools to the agent's tools
         self.agent_executor = self._create_agent_executor() # Initialize with own tools
         self.chat_history: List[Dict[str, Any]] = []
         self.thread_pool: Optional[ThreadPoolExecutor] = None
@@ -446,6 +465,7 @@ You have access to various tools to help the user:
 7. Reminders management for adding, listing, searching, and deleting reminders, including setting a specific time.
 8. Desktop automation for interacting with the operating system, such as accessing the clipboard.
 9. Hacker News integration for fetching top stories, new stories, best stories, and story details.
+10. Memory management for storing and retrieving important information across conversations.
 
 IMPORTANT: When users ask about files you know about, indexed files, or what files you're aware of, you MUST use the filesystem tool with the "search" action. The filesystem tool has semantic search capabilities through its vector store.
 
@@ -730,6 +750,49 @@ For example, if an MCP server provides a 'take_screenshot' tool, you would call 
   "name": "mcp_take_screenshot",
   "arguments": {{...}}
 }}
+
+IMPORTANT: You have memory tools that allow you to remember important information across conversations:
+
+1. add_memory: Store important information in your long-term memory
+   Example: {{
+     "name": "add_memory",
+     "arguments": {{
+       "content": "User prefers dark mode",
+       "importance": 8,
+       "tags": ["preferences"]
+     }}
+   }}
+
+2. search_memory: Search your long-term memory for relevant information
+   Example: {{
+     "name": "search_memory",
+     "arguments": {{
+       "query": "user preferences",
+       "limit": 5
+     }}
+   }}
+
+3. get_memory: Retrieve a specific memory by ID
+   Example: {{
+     "name": "get_memory",
+     "arguments": {{
+       "memory_id": "mem_123456"
+     }}
+   }}
+
+4. delete_memory: Remove a specific memory by ID
+   Example: {{
+     "name": "delete_memory",
+     "arguments": {{
+       "memory_id": "mem_123456"
+     }}
+   }}
+
+Use these memory tools to:
+- Remember important user preferences and information
+- Recall past conversations and decisions
+- Maintain context across multiple sessions
+- Personalize your responses based on what you've learned about the user
 
 Always be concise and clear in your responses.'''),
             MessagesPlaceholder(variable_name="chat_history"),
@@ -1375,6 +1438,10 @@ Always be concise and clear in your responses.'''),
             # Update chat history
             self.chat_history.append({"role": "user", "content": user_input})
             self.chat_history.append({"role": "assistant", "content": output})
+            
+            # Process the conversation with the memory manager
+            await self.memory_manager.process_conversation(self.chat_history)
+            logger.info("Conversation processed by memory manager")
 
             # Speak the response if voice is enabled
             if self.voice:
@@ -1401,6 +1468,11 @@ Always be concise and clear in your responses.'''),
                 logger.info(f"MCP client connection to {url} cancelled.")
         self.mcp_clients.clear()
         self.mcp_client_tasks.clear()
+        
+        # Stop the memory manager
+        if hasattr(self, 'memory_manager'):
+            self.memory_manager.stop()
+            logger.info("Memory manager stopped")
 
     def __del__(self):
         """Shutdown the thread pool executor if it was initialized."""

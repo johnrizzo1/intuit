@@ -1,9 +1,14 @@
 import sys
 import logging
+import argparse
+# Define version
+__version__ = "0.1.0"
 from intuit.tools.calendar import CalendarTool
 from intuit.tools.notes import NotesTool # Import NotesTool
 from intuit.tools.reminders import RemindersTool # Import RemindersTool
+from intuit.memory.store import IntuitMemoryStore # Import IntuitMemoryStore
 from datetime import datetime # Import datetime for parsing reminder time
+import asyncio # Import asyncio for running async functions
 
 def parse_reminder_time(time_str: str) -> datetime:
     """Parses a string into a datetime object for reminder time."""
@@ -13,6 +18,23 @@ def parse_reminder_time(time_str: str) -> datetime:
         return datetime.fromisoformat(time_str)
     except ValueError:
         raise ValueError(f"Invalid time format: {time_str}. Please use ISO 8601 format (e.g., '2025-12-31T23:59:59').")
+
+def search(query: str) -> None:
+    """Search for information using the web search tool."""
+    print(f"Searching for: {query}")
+    # This would typically use a search tool, but for now just print a message
+    print("Search functionality not yet implemented.")
+
+def chat(query: str) -> None:
+    """Engage in a chat conversation."""
+    print(f"Chat: {query}")
+    # This would typically use a chat agent, but for now just print a message
+    print("Chat functionality not yet implemented.")
+
+def process_input(input_text: str) -> str:
+    """Process input from stdin."""
+    # This would typically process the input and return a result
+    return f"Processed: {input_text}"
 
 def main():
     """Main entry point for the CLI."""
@@ -106,6 +128,32 @@ def main():
         # Reminders delete action
         reminders_delete_parser = reminders_subparsers.add_parser("delete", help="Delete a reminder")
         reminders_delete_parser.add_argument("id", help="ID of the reminder to delete")
+        
+        # Memory command
+        memory_parser = subparsers.add_parser("memory", help="Manage memory")
+        memory_subparsers = memory_parser.add_subparsers(dest="action", help="Memory actions")
+        
+        # Memory add action
+        memory_add_parser = memory_subparsers.add_parser("add", help="Add a new memory")
+        memory_add_parser.add_argument("content", help="Content of the memory")
+        memory_add_parser.add_argument("--importance", type=int, default=5, help="Importance level (1-10)")
+        memory_add_parser.add_argument("--tags", nargs="+", help="Tags for categorizing the memory")
+        
+        # Memory search action
+        memory_search_parser = memory_subparsers.add_parser("search", help="Search memories")
+        memory_search_parser.add_argument("query", help="Search query")
+        memory_search_parser.add_argument("--limit", type=int, default=5, help="Maximum number of results to return")
+        
+        # Memory get action
+        memory_get_parser = memory_subparsers.add_parser("get", help="Get a specific memory")
+        memory_get_parser.add_argument("id", help="ID of the memory to retrieve")
+        
+        # Memory delete action
+        memory_delete_parser = memory_subparsers.add_parser("delete", help="Delete a memory")
+        memory_delete_parser.add_argument("id", help="ID of the memory to delete")
+        
+        # Memory clear action
+        memory_clear_parser = memory_subparsers.add_parser("clear", help="Clear all memories")
 
         args = parser.parse_args()
 
@@ -117,6 +165,13 @@ def main():
         calendar_tool = CalendarTool()
         notes_tool = NotesTool() # Initialize NotesTool
         reminders_tool = RemindersTool() # Initialize RemindersTool
+        
+        # Initialize memory store
+        try:
+            memory_store = IntuitMemoryStore()
+        except Exception as e:
+            print(f"Error initializing memory store: {str(e)}", file=sys.stderr)
+            memory_store = None
 
         if args.command == "search":
             if not args.query:
@@ -191,6 +246,78 @@ def main():
             else:
                 print(f"Unknown reminders action: {args.action}", file=sys.stderr)
                 sys.exit(1)
+        elif args.command == "memory": # Handle memory command
+            if not memory_store:
+                print("Error: Memory store not available", file=sys.stderr)
+                sys.exit(1)
+                
+            if args.action == "add":
+                if not args.content:
+                    print("Error: Memory content is required for add action", file=sys.stderr)
+                    sys.exit(1)
+                try:
+                    memory_id = asyncio.run(memory_store.add_memory(
+                        content=args.content,
+                        metadata={"importance": args.importance, "tags": args.tags or []}
+                    ))
+                    print(f"Memory added with ID: {memory_id}")
+                except Exception as e:
+                    print(f"Error adding memory: {str(e)}", file=sys.stderr)
+                    sys.exit(1)
+            elif args.action == "search":
+                if not args.query:
+                    print("Error: Query is required for search action", file=sys.stderr)
+                    sys.exit(1)
+                try:
+                    memories = asyncio.run(memory_store.search_memories(args.query, args.limit))
+                    if not memories:
+                        print("No memories found matching your query.")
+                    else:
+                        print(f"Found {len(memories)} memories:")
+                        for i, memory in enumerate(memories):
+                            print(f"{i+1}. {memory['content']}")
+                except Exception as e:
+                    print(f"Error searching memories: {str(e)}", file=sys.stderr)
+                    sys.exit(1)
+            elif args.action == "get":
+                if not args.id:
+                    print("Error: Memory ID is required for get action", file=sys.stderr)
+                    sys.exit(1)
+                try:
+                    memory = asyncio.run(memory_store.get_memory(args.id))
+                    if memory:
+                        print(f"Memory {args.id}: {memory['content']}")
+                    else:
+                        print(f"Memory with ID {args.id} not found.")
+                except Exception as e:
+                    print(f"Error getting memory: {str(e)}", file=sys.stderr)
+                    sys.exit(1)
+            elif args.action == "delete":
+                if not args.id:
+                    print("Error: Memory ID is required for delete action", file=sys.stderr)
+                    sys.exit(1)
+                try:
+                    success = asyncio.run(memory_store.delete_memory(args.id))
+                    if success:
+                        print(f"Memory with ID {args.id} deleted.")
+                    else:
+                        print(f"Failed to delete memory with ID {args.id}.")
+                except Exception as e:
+                    print(f"Error deleting memory: {str(e)}", file=sys.stderr)
+                    sys.exit(1)
+            elif args.action == "clear":
+                try:
+                    success = asyncio.run(memory_store.clear_memories())
+                    if success:
+                        print("All memories cleared.")
+                    else:
+                        print("Failed to clear memories.")
+                except Exception as e:
+                    print(f"Error clearing memories: {str(e)}", file=sys.stderr)
+                    sys.exit(1)
+            else:
+                print(f"Unknown memory action: {args.action}", file=sys.stderr)
+                sys.exit(1)
         else:
             print(f"Unknown command: {args.command}", file=sys.stderr)
             sys.exit(1)
@@ -200,3 +327,6 @@ def main():
     except Exception as e:
         print(f"Error: {str(e)}", file=sys.stderr)
         sys.exit(1)
+
+if __name__ == "__main__":
+    main()

@@ -6,7 +6,7 @@ import typer
 import sys
 import logging
 import builtins # Import the builtins module
-from typing import Optional, Any
+from typing import Optional, Any, List
 from pathlib import Path
 from datetime import datetime # Import datetime
 from dotenv import load_dotenv
@@ -28,6 +28,7 @@ from .vector_store.indexer import VectorStore
 from .ui.cli import run_cli
 from .ui.voice import run_voice
 from .reminders_service import ReminderService
+from .memory.chroma_store import ChromaMemoryStore
 from .mcp_server import MCPServerManager, DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT # Import MCP Server
 
 # Set up logging with default level (will be adjusted by verbosity option)
@@ -83,6 +84,7 @@ calendar_app = typer.Typer(name="calendar", help="Manage calendar events")
 notes_app = typer.Typer(name="notes", help="Manage notes")
 reminders_app = typer.Typer(name="reminders", help="Manage reminders")
 mcp_cli_app = typer.Typer(name="mcp", help="Manage MCP server and client connections", no_args_is_help=True)
+memory_app = typer.Typer(name="memory", help="Manage memory")
 
 
 # Mount tool Typer instances onto the main app
@@ -90,6 +92,7 @@ app.add_typer(calendar_app)
 app.add_typer(notes_app)
 app.add_typer(reminders_app)
 app.add_typer(mcp_cli_app)
+app.add_typer(memory_app)
 
 
 # Define commands for Calendar tool
@@ -216,6 +219,100 @@ def delete(id: str) -> None:
     else:
         print("Reminders tool not available.")
 
+# Define commands for Memory tool
+@memory_app.command()
+def add(content: str, importance: int = typer.Option(5, help="Importance level (1-10)"),
+        tags: Optional[List[str]] = typer.Option(None, help="Tags for categorizing the memory")) -> None:
+    """Adds a new memory."""
+    agent = asyncio.run(create_agent())
+    try:
+        # Get the memory store from the agent
+        if hasattr(agent, 'memory_store'):
+            memory_store = agent.memory_store
+            memory_id = asyncio.run(memory_store.add_memory(
+                content=content,
+                metadata={"importance": importance, "tags": tags or []}
+            ))
+            print(f"Memory added with ID: {memory_id}")
+        else:
+            print("Memory store not available.")
+    except Exception as e:
+        print(f"Error adding memory: {str(e)}")
+
+@memory_app.command()
+def search(query: str, limit: int = typer.Option(5, help="Maximum number of results to return")) -> None:
+    """Searches memories by semantic similarity."""
+    agent = asyncio.run(create_agent())
+    try:
+        # Get the memory store from the agent
+        if hasattr(agent, 'memory_store'):
+            memory_store = agent.memory_store
+            memories = asyncio.run(memory_store.search_memories(query, limit))
+            if not memories:
+                print("No memories found matching your query.")
+            else:
+                print(f"Found {len(memories)} memories:")
+                for i, memory in enumerate(memories):
+                    print(f"{i+1}. {memory['content']}")
+        else:
+            print("Memory store not available.")
+    except Exception as e:
+        print(f"Error searching memories: {str(e)}")
+
+@memory_app.command()
+def get(memory_id: str) -> None:
+    """Gets a specific memory by ID."""
+    agent = asyncio.run(create_agent())
+    try:
+        # Get the memory store from the agent
+        if hasattr(agent, 'memory_store'):
+            memory_store = agent.memory_store
+            memory = asyncio.run(memory_store.get_memory(memory_id))
+            if memory:
+                print(f"Memory {memory_id}: {memory['content']}")
+            else:
+                print(f"Memory with ID {memory_id} not found.")
+        else:
+            print("Memory store not available.")
+    except Exception as e:
+        print(f"Error getting memory: {str(e)}")
+
+@memory_app.command()
+def delete(memory_id: str) -> None:
+    """Deletes a memory by ID."""
+    agent = asyncio.run(create_agent())
+    try:
+        # Get the memory store from the agent
+        if hasattr(agent, 'memory_store'):
+            memory_store = agent.memory_store
+            success = asyncio.run(memory_store.delete_memory(memory_id))
+            if success:
+                print(f"Memory with ID {memory_id} deleted.")
+            else:
+                print(f"Failed to delete memory with ID {memory_id}.")
+        else:
+            print("Memory store not available.")
+    except Exception as e:
+        print(f"Error deleting memory: {str(e)}")
+
+@memory_app.command()
+def clear() -> None:
+    """Clears all memories."""
+    agent = asyncio.run(create_agent())
+    try:
+        # Get the memory store from the agent
+        if hasattr(agent, 'memory_store'):
+            memory_store = agent.memory_store
+            success = asyncio.run(memory_store.clear_memories())
+            if success:
+                print("All memories cleared.")
+            else:
+                print("Failed to clear memories.")
+        else:
+            print("Memory store not available.")
+    except Exception as e:
+        print(f"Error clearing memories: {str(e)}")
+
 
 async def create_agent(
     model: str = os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini"),
@@ -276,6 +373,8 @@ async def create_agent(
     from .tools.calendar import CalendarTool
     from .tools.notes import NotesTool
     from .tools.reminders import RemindersTool
+    from .memory.chroma_store import ChromaMemoryStore
+    from .memory.manager import IntuitMemoryManager
     
     # Initialize vector store if requested
     vector_store = None
@@ -322,6 +421,20 @@ async def create_agent(
         from .voice import VoiceOutput
         voice_output_instance = VoiceOutput(language=config.voice_language, slow=config.voice_slow)
         reminder_service = ReminderService(reminders_tool=reminders_tool_instance, voice_output=voice_output_instance)
+
+    # Initialize memory store and manager
+    memory_store = None
+    memory_manager = None
+    try:
+        logger.info("Initializing memory store")
+        memory_store = ChromaMemoryStore(model=model)
+        logger.info("Initializing memory manager")
+        memory_manager = IntuitMemoryManager(store=memory_store, model=model)
+        logger.info("Memory store and manager initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize memory store or manager: {e}")
+        memory_store = None
+        memory_manager = None
 
     agent = Agent(tools=tools, config=config, reminder_service=reminder_service)
 

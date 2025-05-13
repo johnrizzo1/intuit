@@ -39,6 +39,8 @@ dependencies = [
     "mcp>=1.8.0",
     "pyautogui>=0.9.54",
     "pillow>=11.2.1",
+    "langmem>=0.0.25",
+    "pytest-asyncio>=0.26.0",
 ]
 
 [project.scripts]
