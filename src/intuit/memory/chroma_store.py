@@ -123,6 +123,18 @@ class ChromaMemoryStore:
                 results = self.collection.get(
                     limit=limit
                 )
+                
+                # Convert results to a list of dictionaries
+                memories = []
+                for i in range(len(results['documents'])):
+                    memory = {
+                        "id": results['ids'][i],
+                        "content": results['documents'][i],
+                        "metadata": results['metadatas'][i],
+                        "created_at": results['metadatas'][i].get("created_at"),
+                        "updated_at": results['metadatas'][i].get("updated_at")
+                    }
+                    memories.append(memory)
             else:
                 # Use query_texts for semantic search
                 results = self.collection.query(
@@ -131,37 +143,33 @@ class ChromaMemoryStore:
                 )
                 
                 # Extract results from the first query
-                if results and 'documents' in results and results['documents']:
+                if results and 'documents' in results and results['documents'] and results['documents'][0]:
                     documents = results['documents'][0]
                     metadatas = results['metadatas'][0]
                     ids = results['ids'][0]
+                    
+                    # Convert results to a list of dictionaries
+                    memories = []
+                    for i in range(len(documents)):
+                        # Check if the content or metadata contains the query string (case-insensitive)
+                        content = documents[i].lower()
+                        query_lower = query.lower()
+                        
+                        # Only include results that contain the query string or are semantically relevant
+                        # Since we can't get distance scores, we'll use string matching as a fallback
+                        if query_lower in content:
+                            memory = {
+                                "id": ids[i],
+                                "content": documents[i],
+                                "metadata": metadatas[i],
+                                "created_at": metadatas[i].get("created_at"),
+                                "updated_at": metadatas[i].get("updated_at")
+                            }
+                            memories.append(memory)
                 else:
-                    documents = []
-                    metadatas = []
-                    ids = []
+                    memories = []
             
-            # Convert results to a list of dictionaries
-            memories = []
-            for i in range(len(documents) if 'documents' in locals() else len(results['documents'])):
-                if 'documents' in locals():
-                    # Query results
-                    memory = {
-                        "id": ids[i],
-                        "content": documents[i],
-                        "metadata": metadatas[i],
-                        "created_at": metadatas[i].get("created_at"),
-                        "updated_at": metadatas[i].get("updated_at")
-                    }
-                else:
-                    # Get results
-                    memory = {
-                        "id": results['ids'][i],
-                        "content": results['documents'][i],
-                        "metadata": results['metadatas'][i],
-                        "created_at": results['metadatas'][i].get("created_at"),
-                        "updated_at": results['metadatas'][i].get("updated_at")
-                    }
-                memories.append(memory)
+            # No need to sort since we're using string matching
             
             logger.info(f"Found {len(memories)} memories")
             return memories

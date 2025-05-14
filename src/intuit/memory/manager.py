@@ -46,9 +46,27 @@ class IntuitMemoryManager:
                     "content": msg.get("content", "")
                 })
             
-            # Process the conversation
-            await self.manager.process_conversation(formatted_messages)
-            logger.info("Conversation processing complete")
+            # Check if the manager has a process_conversation method
+            if hasattr(self.manager, 'process_conversation'):
+                # Process the conversation
+                await self.manager.process_conversation(formatted_messages)
+                logger.info("Conversation processing complete")
+            else:
+                # If the manager doesn't have a process_conversation method, log a warning
+                logger.warning("Memory manager doesn't have a process_conversation method")
+                
+                # Extract important information from the conversation and store it
+                # This is a simple implementation that just stores the last message
+                if formatted_messages:
+                    last_message = formatted_messages[-1]
+                    if last_message.get("role") == "user" and last_message.get("content"):
+                        # Store the user's message as a memory
+                        await self.store.add_memory(
+                            content=last_message.get("content"),
+                            metadata={"source": "conversation", "importance": 5}
+                        )
+                        logger.info("Stored last user message as memory")
+                
         except Exception as e:
             logger.error(f"Error processing conversation: {e}")
     

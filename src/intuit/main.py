@@ -1,6 +1,9 @@
 """
 Main entry point for Intuit.
 """
+# Import disable_logging first to disable all logging
+from .disable_logging import restore_output
+
 import asyncio
 import typer
 import sys
@@ -31,13 +34,63 @@ from .reminders_service import ReminderService
 from .memory.chroma_store import ChromaMemoryStore
 from .mcp_server import MCPServerManager, DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT # Import MCP Server
 
-# Set up logging with default level (will be adjusted by verbosity option)
+# Create a NullHandler that does nothing with log records
+class NullHandler(logging.Handler):
+    def emit(self, record):
+        pass
+
+# Create a custom filter that blocks all log messages except ERROR and CRITICAL
+class SuppressFilter(logging.Filter):
+    def __init__(self, level=logging.ERROR):
+        self.level = level
+
+    def filter(self, record):
+        return record.levelno >= self.level
+
+# Completely disable all logging by default
 logging.basicConfig(
-    level=logging.ERROR,  # Default to ERROR level only (suppress warnings)
+    level=logging.ERROR,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     force=True
 )
+
+# Create a null handler and suppress filter
+null_handler = NullHandler()
+suppress_filter = SuppressFilter(logging.ERROR)
+
+# Apply to root logger
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.ERROR)
+root_logger.addHandler(null_handler)
+root_logger.addFilter(suppress_filter)
+
+# Remove all existing handlers from the root logger
+for handler in list(root_logger.handlers):
+    if handler != null_handler:
+        root_logger.removeHandler(handler)
+
+# Monkey patch the logging module to prevent other libraries from changing the configuration
+original_basicConfig = logging.basicConfig
+def patched_basicConfig(**kwargs):
+    # Do nothing to prevent other libraries from changing the config
+    pass
+logging.basicConfig = patched_basicConfig
+
+# Explicitly silence all known loggers
+all_loggers = ["mcp", "intuit", "chromadb", "urllib3", "httpx", "httpcore",
+              "asyncio", "chromadb.telemetry", "chromadb.api", "chromadb.segment",
+              "chromadb.db", "chromadb.server", "chromadb.config", "hnswlib"]
+
+for logger_name in all_loggers:
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(logging.ERROR)
+    logger.addHandler(null_handler)
+    logger.addFilter(suppress_filter)
+    logger.propagate = False  # Prevent propagation to parent loggers
+
+# Get our own logger
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.ERROR)
 
 # Create the main app
 app = typer.Typer(no_args_is_help=True)
@@ -46,32 +99,37 @@ app = typer.Typer(no_args_is_help=True)
 def set_verbosity(verbose: int = typer.Option(0, "--verbose", "-v", count=True,
                                              help="Increase verbosity (can be used multiple times)")):
     """Set the verbosity level based on the number of -v flags."""
+    global suppress_filter
+    
     # Set log levels based on verbosity count
     if verbose == 0:
         # Default: Show only errors
-        logging.getLogger().setLevel(logging.ERROR)
-        
-        # Specifically silence common noisy loggers
-        logging.getLogger("mcp").setLevel(logging.ERROR)
-        logging.getLogger("intuit").setLevel(logging.ERROR)
-        
+        level = logging.ERROR
     elif verbose == 1:
         # -v: Show warnings and errors
-        logging.getLogger().setLevel(logging.WARNING)
-        logging.getLogger("mcp").setLevel(logging.WARNING)
-        logging.getLogger("intuit").setLevel(logging.WARNING)
-        
+        level = logging.WARNING
     elif verbose == 2:
         # -vv: Show info, warnings, and errors
-        logging.getLogger().setLevel(logging.INFO)
-        logging.getLogger("mcp").setLevel(logging.INFO)
-        logging.getLogger("intuit").setLevel(logging.INFO)
-        
+        level = logging.INFO
     elif verbose >= 3:
         # -vvv or more: Show debug, info, warnings, and errors
-        logging.getLogger().setLevel(logging.DEBUG)
-        logging.getLogger("mcp").setLevel(logging.DEBUG)
-        logging.getLogger("intuit").setLevel(logging.DEBUG)
+        level = logging.DEBUG
+    
+    # Update the filter level
+    suppress_filter.level = level
+    
+    # Update the root logger level
+    root_logger = logging.getLogger()
+    root_logger.setLevel(level)
+    
+    # Update all logger levels
+    all_loggers = ["mcp", "intuit", "chromadb", "urllib3", "httpx", "httpcore",
+                  "asyncio", "chromadb.telemetry", "chromadb.api", "chromadb.segment",
+                  "chromadb.db", "chromadb.server", "chromadb.config", "hnswlib"]
+    
+    for logger_name in all_loggers:
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(level)
     
     # Return value is required for the callback
     return verbose
@@ -220,11 +278,35 @@ def delete(id: str) -> None:
         print("Reminders tool not available.")
 
 # Define commands for Memory tool
+def _create_agent_with_logging_control(verbose: int = 0):
+    """Helper function to create an agent with proper logging control."""
+    # Completely disable logging for non-verbose mode
+    if verbose == 0:
+        # Redirect stderr to /dev/null
+        old_stderr = sys.stderr
+        try:
+            with open(os.devnull, 'w') as devnull:
+                sys.stderr = devnull
+                # Create agent with quiet mode
+                agent = asyncio.run(create_agent(quiet=True))
+        finally:
+            # Restore stderr
+            sys.stderr = old_stderr
+    else:
+        # Set verbosity level
+        set_verbosity(verbose)
+        # Create agent with quiet mode based on verbose flag
+        agent = asyncio.run(create_agent(quiet=False))
+    
+    return agent
+
 @memory_app.command()
 def add(content: str, importance: int = typer.Option(5, help="Importance level (1-10)"),
-        tags: Optional[List[str]] = typer.Option(None, help="Tags for categorizing the memory")) -> None:
+        tags: Optional[List[str]] = typer.Option(None, help="Tags for categorizing the memory"),
+        verbose: int = typer.Option(0, "--verbose", "-v", count=True, help="Increase verbosity")) -> None:
     """Adds a new memory."""
-    agent = asyncio.run(create_agent())
+    # Create agent with proper logging control
+    agent = _create_agent_with_logging_control(verbose)
     try:
         # Get the memory store from the agent
         if hasattr(agent, 'memory_store'):
@@ -240,9 +322,11 @@ def add(content: str, importance: int = typer.Option(5, help="Importance level (
         print(f"Error adding memory: {str(e)}")
 
 @memory_app.command()
-def search(query: str, limit: int = typer.Option(5, help="Maximum number of results to return")) -> None:
+def search(query: str, limit: int = typer.Option(5, help="Maximum number of results to return"),
+           verbose: int = typer.Option(0, "--verbose", "-v", count=True, help="Increase verbosity")) -> None:
     """Searches memories by semantic similarity."""
-    agent = asyncio.run(create_agent())
+    # Create agent with proper logging control
+    agent = _create_agent_with_logging_control(verbose)
     try:
         # Get the memory store from the agent
         if hasattr(agent, 'memory_store'):
@@ -260,9 +344,10 @@ def search(query: str, limit: int = typer.Option(5, help="Maximum number of resu
         print(f"Error searching memories: {str(e)}")
 
 @memory_app.command()
-def get(memory_id: str) -> None:
+def get(memory_id: str, verbose: int = typer.Option(0, "--verbose", "-v", count=True, help="Increase verbosity")) -> None:
     """Gets a specific memory by ID."""
-    agent = asyncio.run(create_agent())
+    # Create agent with proper logging control
+    agent = _create_agent_with_logging_control(verbose)
     try:
         # Get the memory store from the agent
         if hasattr(agent, 'memory_store'):
@@ -278,9 +363,10 @@ def get(memory_id: str) -> None:
         print(f"Error getting memory: {str(e)}")
 
 @memory_app.command()
-def delete(memory_id: str) -> None:
+def delete(memory_id: str, verbose: int = typer.Option(0, "--verbose", "-v", count=True, help="Increase verbosity")) -> None:
     """Deletes a memory by ID."""
-    agent = asyncio.run(create_agent())
+    # Create agent with proper logging control
+    agent = _create_agent_with_logging_control(verbose)
     try:
         # Get the memory store from the agent
         if hasattr(agent, 'memory_store'):
@@ -296,9 +382,10 @@ def delete(memory_id: str) -> None:
         print(f"Error deleting memory: {str(e)}")
 
 @memory_app.command()
-def clear() -> None:
+def clear(verbose: int = typer.Option(0, "--verbose", "-v", count=True, help="Increase verbosity")) -> None:
     """Clears all memories."""
-    agent = asyncio.run(create_agent())
+    # Create agent with proper logging control
+    agent = _create_agent_with_logging_control(verbose)
     try:
         # Get the memory store from the agent
         if hasattr(agent, 'memory_store'):
@@ -327,6 +414,7 @@ async def create_agent(
     openai_api_base: Optional[str] = None,
     openai_api_type: Optional[str] = None,
     openai_api_version: Optional[str] = None,
+    quiet: bool = True,  # Add a quiet parameter to silence loggers
 ) -> Agent:
     """
     Create and configure the Intuit agent with all tools.
@@ -348,19 +436,34 @@ async def create_agent(
     Returns:
         Configured agent instance
     """
-    logger.info("Creating agent with configuration:")
-    logger.info("- Model: %s", model)
-    logger.info("- Temperature: %f", temperature)
-    logger.info("- Index filesystem: %s", index_filesystem)
-    logger.info("- Filesystem path: %s", filesystem_path)
-    logger.info("- Enable Gmail: %s", enable_gmail)
-    logger.info("- Enable Weather: %s", enable_weather)
-    logger.info("- Use Voice: %s", use_voice)
-    logger.info("- Voice Language: %s", voice_language)
-    logger.info("- Voice Slow: %s", voice_slow)
-    logger.info("- OpenAI API Base: %s", openai_api_base)
-    logger.info("- OpenAI API Type: %s", openai_api_type)
-    logger.info("- OpenAI API Version: %s", openai_api_version)
+    # Silence loggers if quiet is True
+    if quiet:
+        # Apply aggressive silencing
+        for logger_name in ["", "mcp", "intuit", "chromadb", "urllib3", "httpx", "httpcore",
+                           "asyncio", "chromadb.telemetry", "chromadb.api", "chromadb.segment",
+                           "chromadb.db", "chromadb.server", "chromadb.config", "hnswlib"]:
+            logger = logging.getLogger(logger_name)
+            logger.setLevel(logging.ERROR)
+            logger.addHandler(null_handler)
+            logger.addFilter(suppress_filter)
+            logger.propagate = False
+            
+        # Monkey patch the logging module again to ensure it stays disabled
+        logging.basicConfig = patched_basicConfig
+    else:
+        logger.info("Creating agent with configuration:")
+        logger.info("- Model: %s", model)
+        logger.info("- Temperature: %f", temperature)
+        logger.info("- Index filesystem: %s", index_filesystem)
+        logger.info("- Filesystem path: %s", filesystem_path)
+        logger.info("- Enable Gmail: %s", enable_gmail)
+        logger.info("- Enable Weather: %s", enable_weather)
+        logger.info("- Use Voice: %s", use_voice)
+        logger.info("- Voice Language: %s", voice_language)
+        logger.info("- Voice Slow: %s", voice_slow)
+        logger.info("- OpenAI API Base: %s", openai_api_base)
+        logger.info("- OpenAI API Type: %s", openai_api_type)
+        logger.info("- OpenAI API Version: %s", openai_api_version)
 
     # Initialize tools list
     tools = []
