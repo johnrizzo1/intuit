@@ -23,6 +23,7 @@ from .agent import Agent, AgentConfig
 from .tools.web_search import WebSearchTool
 from .tools.gmail import GmailTool
 from .tools.weather import WeatherTool
+from .tools.hackernews import HackerNewsTool
 from .tools.filesystem import FilesystemTool
 from .tools.calendar import CalendarTool
 from .tools.notes import NotesTool
@@ -473,6 +474,7 @@ async def create_agent(
     from .tools.web_search import WebSearchTool
     from .tools.gmail import GmailTool
     from .tools.weather import WeatherTool
+    from .tools.hackernews import HackerNewsTool
     from .tools.calendar import CalendarTool
     from .tools.notes import NotesTool
     from .tools.reminders import RemindersTool
@@ -500,6 +502,43 @@ async def create_agent(
         logger.info("Creating FilesystemTool without vector store")
         filesystem_tool = FilesystemTool()
         tools.append(filesystem_tool)
+    
+    # Add web search tool
+    logger.info("Adding WebSearchTool")
+    web_search_tool = WebSearchTool()
+    tools.append(web_search_tool)
+    
+    # Add weather tool if enabled
+    if enable_weather:
+        logger.info("Adding WeatherTool")
+        weather_tool = WeatherTool()
+        tools.append(weather_tool)
+    
+    # Add HackerNews tool
+    logger.info("Adding HackerNewsTool")
+    hackernews_tool = HackerNewsTool()
+    tools.append(hackernews_tool)
+    
+    # Add Gmail tool if enabled
+    if enable_gmail:
+        logger.info("Adding GmailTool")
+        gmail_tool = GmailTool()
+        tools.append(gmail_tool)
+    
+    # Add calendar tool
+    logger.info("Adding CalendarTool")
+    calendar_tool = CalendarTool()
+    tools.append(calendar_tool)
+    
+    # Add notes tool
+    logger.info("Adding NotesTool")
+    notes_tool = NotesTool()
+    tools.append(notes_tool)
+    
+    # Add reminders tool
+    logger.info("Adding RemindersTool")
+    reminders_tool = RemindersTool()
+    tools.append(reminders_tool)
 
     # Create agent configuration
     config = AgentConfig(

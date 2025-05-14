@@ -11,6 +11,8 @@ import chromadb
 from chromadb.config import Settings
 from chromadb.utils import embedding_functions
 
+from ..utils.spinner import ThinkingSpinner, with_spinner
+
 logger = logging.getLogger(__name__)
 
 class ChromaMemoryStore:
@@ -115,67 +117,72 @@ class ChromaMemoryStore:
         Returns:
             List of memories matching the query
         """
-        try:
-            logger.info(f"Searching memories with query: {query}")
-            
-            # Handle empty query to list all memories
-            if not query:
-                results = self.collection.get(
-                    limit=limit
-                )
+        with ThinkingSpinner(text=f"Searching memories for '{query}'",
+                            spinner=None,
+                            color="magenta") as spinner:
+            try:
+                logger.info(f"Searching memories with query: {query}")
                 
-                # Convert results to a list of dictionaries
-                memories = []
-                for i in range(len(results['documents'])):
-                    memory = {
-                        "id": results['ids'][i],
-                        "content": results['documents'][i],
-                        "metadata": results['metadatas'][i],
-                        "created_at": results['metadatas'][i].get("created_at"),
-                        "updated_at": results['metadatas'][i].get("updated_at")
-                    }
-                    memories.append(memory)
-            else:
-                # Use query_texts for semantic search
-                results = self.collection.query(
-                    query_texts=[query],
-                    n_results=limit
-                )
-                
-                # Extract results from the first query
-                if results and 'documents' in results and results['documents'] and results['documents'][0]:
-                    documents = results['documents'][0]
-                    metadatas = results['metadatas'][0]
-                    ids = results['ids'][0]
+                # Handle empty query to list all memories
+                if not query:
+                    results = self.collection.get(
+                        limit=limit
+                    )
                     
                     # Convert results to a list of dictionaries
                     memories = []
-                    for i in range(len(documents)):
-                        # Check if the content or metadata contains the query string (case-insensitive)
-                        content = documents[i].lower()
-                        query_lower = query.lower()
-                        
-                        # Only include results that contain the query string or are semantically relevant
-                        # Since we can't get distance scores, we'll use string matching as a fallback
-                        if query_lower in content:
-                            memory = {
-                                "id": ids[i],
-                                "content": documents[i],
-                                "metadata": metadatas[i],
-                                "created_at": metadatas[i].get("created_at"),
-                                "updated_at": metadatas[i].get("updated_at")
-                            }
-                            memories.append(memory)
+                    for i in range(len(results['documents'])):
+                        memory = {
+                            "id": results['ids'][i],
+                            "content": results['documents'][i],
+                            "metadata": results['metadatas'][i],
+                            "created_at": results['metadatas'][i].get("created_at"),
+                            "updated_at": results['metadatas'][i].get("updated_at")
+                        }
+                        memories.append(memory)
                 else:
-                    memories = []
-            
-            # No need to sort since we're using string matching
-            
-            logger.info(f"Found {len(memories)} memories")
-            return memories
-        except Exception as e:
-            logger.error(f"Error searching memories: {e}")
-            return []
+                    # Use query_texts for semantic search
+                    results = self.collection.query(
+                        query_texts=[query],
+                        n_results=limit
+                    )
+                    
+                    # Extract results from the first query
+                    if results and 'documents' in results and results['documents'] and results['documents'][0]:
+                        documents = results['documents'][0]
+                        metadatas = results['metadatas'][0]
+                        ids = results['ids'][0]
+                        
+                        # Convert results to a list of dictionaries
+                        memories = []
+                        for i in range(len(documents)):
+                            # Check if the content or metadata contains the query string (case-insensitive)
+                            content = documents[i].lower()
+                            query_lower = query.lower()
+                            
+                            # Only include results that contain the query string or are semantically relevant
+                            # Since we can't get distance scores, we'll use string matching as a fallback
+                            if query_lower in content:
+                                memory = {
+                                    "id": ids[i],
+                                    "content": documents[i],
+                                    "metadata": metadatas[i],
+                                    "created_at": metadatas[i].get("created_at"),
+                                    "updated_at": metadatas[i].get("updated_at")
+                                }
+                                memories.append(memory)
+                    else:
+                        memories = []
+                
+                # No need to sort since we're using string matching
+                
+                logger.info(f"Found {len(memories)} memories")
+                spinner.ok()
+                return memories
+            except Exception as e:
+                logger.error(f"Error searching memories: {e}")
+                spinner.fail()
+                return []
     
     async def get_memory(self, memory_id: str) -> Optional[Dict[str, Any]]:
         """

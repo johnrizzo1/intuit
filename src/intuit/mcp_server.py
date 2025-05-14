@@ -201,7 +201,11 @@ def weather_get(location: str) -> str:
     """
     logger.info(f"MCP: Getting weather for: {location}")
     weather_tool = WeatherTool()
-    return str(weather_tool.get_weather(location))
+    
+    # Use asyncio to run the async method
+    import asyncio
+    result = asyncio.run(weather_tool.get_weather_async(location))
+    return result
 
 # Web search tool
 @mcp_server.tool()

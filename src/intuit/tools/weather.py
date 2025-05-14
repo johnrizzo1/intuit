@@ -131,4 +131,73 @@ class WeatherTool(BaseTool):
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit."""
         if self._client and not self._client.closed:
-            await self._client.close() 
+            await self._client.close()
+    
+    async def get_weather_async(self, location: str) -> str:
+        """
+        Get weather information for a location (async version).
+        
+        Args:
+            location: Name of the location (e.g., "London, UK")
+            
+        Returns:
+            String representation of weather information
+        """
+        try:
+            result = await self._arun(location)
+            
+            if "error" in result:
+                return f"Error: {result['error']}"
+            
+            # Format the result
+            output = f"Weather for {result['location']}:\n\n"
+            
+            # Current weather
+            current = result["current"]
+            output += f"Current Conditions:\n"
+            output += f"- Temperature: {current['temperature']}°C\n"
+            output += f"- Conditions: {current['description']}\n"
+            output += f"- Humidity: {current['humidity']}%\n"
+            output += f"- Wind Speed: {current['wind_speed']} m/s\n\n"
+            
+            # Forecast
+            output += "Forecast:\n"
+            for item in result["forecast"]:
+                # Convert timestamp to readable format
+                from datetime import datetime
+                time_str = datetime.fromtimestamp(item["time"]).strftime("%Y-%m-%d %H:%M")
+                output += f"- {time_str}: {item['temperature']}°C, {item['description']}\n"
+            
+            return output
+        except Exception as e:
+            return f"Error getting weather information: {str(e)}"
+    
+    def get_weather(self, location: str) -> str:
+        """
+        Get weather information for a location (sync wrapper).
+        
+        Args:
+            location: Name of the location (e.g., "London, UK")
+            
+        Returns:
+            String representation of weather information
+        """
+        import asyncio
+        
+        # Get the current event loop or create a new one if needed
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If we're already in an event loop, create a new task
+                return "Please use the async version of this method when calling from an async context."
+            else:
+                # If we have a loop but it's not running, use it
+                return loop.run_until_complete(self.get_weather_async(location))
+        except RuntimeError:
+            # If there is no event loop, create one
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(self.get_weather_async(location))
+            finally:
+                loop.close()

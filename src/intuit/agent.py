@@ -24,6 +24,8 @@ from .tools.basetool import BaseTool
 from .tools.calendar import CalendarTool # Import CalendarTool
 from .tools.notes import NotesTool # Import NotesTool
 from .tools.reminders import RemindersTool # Import RemindersTool
+from .tools.weather import WeatherTool # Import WeatherTool
+from .tools.hackernews import HackerNewsTool # Import HackerNewsTool
 from .reminders_service import ReminderService # Import ReminderService
 from .voice import VoiceOutput
 from mcp import ClientSession as MCPClient  # Use ClientSession as MCPClient
@@ -103,7 +105,12 @@ class Agent:
 
         self.llm = ChatOpenAI(**openai_kwargs)
 
-        self.tools = tools + self.memory_tools # Add memory tools to the agent's tools
+        # Add weather and hackernews tools
+        self.weather_tool = WeatherTool()
+        self.hackernews_tool = HackerNewsTool()
+        
+        # Combine all tools
+        self.tools = tools + self.memory_tools + [self.weather_tool, self.hackernews_tool] # Add all tools to the agent's tools
         self.agent_executor = self._create_agent_executor() # Initialize with own tools
         self.chat_history: List[Dict[str, Any]] = []
         self.thread_pool: Optional[ThreadPoolExecutor] = None
@@ -868,6 +875,8 @@ Always be concise and clear in your responses.'''),
                      expected_args = {"action", "content", "keyword", "id"}
                 elif tool_name == "reminders":
                      expected_args = {"action", "content", "reminder_time", "keyword", "id"}
+                elif tool_name == "hackernews":
+                     expected_args = {"action", "limit", "item_id"}
                 # Add other local tools here if necessary
 
                 filtered_args = {k: v for k, v in tool_args.items() if k in expected_args}
@@ -1257,6 +1266,123 @@ Always be concise and clear in your responses.'''),
                     logger.error(f"Error using filesystem tool directly: {e}")
                     # Fall back to normal agent execution
             
+        # Check for hackernews queries
+        elif any(keyword in user_input.lower() for keyword in ["hackernews", "hacker news", "tech news", "latest news", "top stories"]):
+            logger.info("Detected request for Hacker News")
+            
+            # Try to find the hackernews tool
+            hackernews_tool = None
+            for tool in self.tools:
+                if hasattr(tool, 'name') and tool.name == "hackernews":
+                    hackernews_tool = tool
+                    logger.info("Found hackernews tool in tools list")
+                    break
+            
+            # If we found a hackernews tool, use it directly
+            if hackernews_tool:
+                logger.info("Using hackernews tool directly")
+                try:
+                    # Determine which action to use based on the query
+                    action = "top"  # Default to top stories
+                    limit = 10      # Default limit
+                    
+                    if "new" in user_input.lower() or "latest" in user_input.lower():
+                        action = "new"
+                    elif "best" in user_input.lower():
+                        action = "best"
+                    
+                    # Use the async version of the tool's run method
+                    result = await hackernews_tool._arun(action=action, limit=limit)
+                    logger.info(f"Hackernews tool result: {result}")
+                    
+                    # Format the result
+                    if isinstance(result, dict):
+                        if "stories" in result and result["stories"]:
+                            stories = result["stories"]
+                            output = f"Here are the {action} stories from Hacker News:\n\n"
+                            
+                            for i, story in enumerate(stories[:limit]):
+                                title = story.get('title', 'No title')
+                                url = story.get('url', f"https://news.ycombinator.com/item?id={story.get('id')}")
+                                score = story.get('score', 0)
+                                comments = story.get('descendants', 0)
+                                by = story.get('by', 'unknown')
+                                
+                                output += f"{i+1}. {title}\n"
+                                output += f"   Score: {score} | Comments: {comments}\n"
+                                output += f"   Posted by: {by}\n"
+                                output += f"   URL: {url}\n\n"
+                        else:
+                            output = "No stories found on Hacker News."
+                    else:
+                        output = str(result)
+                        
+                    # Update chat history
+                    self.chat_history.append(HumanMessage(content=user_input))
+                    self.chat_history.append(AIMessage(content=output))
+                    
+                    return output
+                except Exception as e:
+                    logger.error(f"Error using hackernews tool directly: {e}")
+                    # Fall back to normal agent execution
+        
+        # Check for weather queries
+        elif any(keyword in user_input.lower() for keyword in ["weather", "temperature", "forecast", "rain", "snow", "sunny", "cloudy"]):
+            logger.info("Detected request for weather information")
+            
+            # Try to find the weather tool
+            weather_tool = None
+            for tool in self.tools:
+                if hasattr(tool, 'name') and tool.name == "weather":
+                    weather_tool = tool
+                    logger.info("Found weather tool in tools list")
+                    break
+            
+            # If we found a weather tool, use it directly
+            if weather_tool:
+                logger.info("Using weather tool directly")
+                try:
+                    # Extract location from the query
+                    import re
+                    
+                    # Try to extract location using common patterns
+                    location_patterns = [
+                        r"weather (?:in|for|at) ([\w\s,]+)",
+                        r"temperature (?:in|for|at) ([\w\s,]+)",
+                        r"forecast (?:in|for|at) ([\w\s,]+)",
+                        r"(?:in|for|at) ([\w\s,]+)"
+                    ]
+                    
+                    location = None
+                    for pattern in location_patterns:
+                        match = re.search(pattern, user_input.lower())
+                        if match:
+                            location = match.group(1).strip()
+                            break
+                    
+                    # If no location found, use a default
+                    if not location:
+                        location = "New York, NY"
+                        output = "I couldn't determine the location from your query. Here's the weather for New York, NY:\n\n"
+                    else:
+                        output = f"Here's the current weather for {location}:\n\n"
+                    
+                    # Use the async version of the get_weather method
+                    result = await weather_tool.get_weather_async(location)
+                    logger.info(f"Weather tool result: {result}")
+                    
+                    # The get_weather_async method already formats the result
+                    output += result
+                        
+                    # Update chat history
+                    self.chat_history.append(HumanMessage(content=user_input))
+                    self.chat_history.append(AIMessage(content=output))
+                    
+                    return output
+                except Exception as e:
+                    logger.error(f"Error using weather tool directly: {e}")
+                    # Fall back to normal agent execution
+        
         elif user_input.lower().strip() in ["list all available mcp tools", "list mcp tools", "show mcp tools"]:
             # If we're asking for MCP tools but don't have any yet, try to get them from the MCP server directly
             if not self.mcp_tools and self.mcp_clients:
