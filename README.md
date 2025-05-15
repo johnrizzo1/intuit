@@ -79,9 +79,13 @@ Start the agent in real-time voice interaction mode:
 uv run intuit voice
 ```
 
-### MCP Server Mode
+### MCP (Model Context Protocol) Integration
 
-Run Intuit as an MCP server to expose its tools:
+Intuit supports the Model Context Protocol (MCP), which enables AI models to interact with external tools and resources in a standardized way. Intuit can function as both an MCP server (exposing its tools to other AI agents) and an MCP client (connecting to external MCP servers to use their tools).
+
+#### MCP Server Mode
+
+Run Intuit as an MCP server to expose its tools to other AI agents:
 
 ```bash
 uv run intuit mcp start-server --host localhost --port 8000
@@ -90,8 +94,51 @@ uv run intuit mcp start-server --host localhost --port 8000
 You can list the tools available on the local MCP server:
 
 ```bash
+uv run intuit mcp list-tools
+```
+
+The MCP server exposes the following tools:
+- Calendar tools (add, list, search, delete)
+- Notes tools (add, list, search, delete)
+- Reminders tools (add, list, search, delete)
+- Weather tools (get weather for a location)
+- Web search tools (search the web)
+- Filesystem tools (list, read, write, search)
+- Screenshot tool (take a screenshot)
+- Hacker News tools (get top, new, best stories)
+- Memory tools (add, search, get, delete memories)
+
+#### MCP Client Mode
+
+Connect Intuit to an external MCP server to use its tools:
+
+```bash
+# In interactive mode
+uv run intuit chat
+> connect to MCP server at http://localhost:8000
+```
+
+```bash
+# Or directly from the command line
+uv run intuit mcp connect http://localhost:8000
+```
+
+List the tools available from connected MCP servers:
+
+```bash
 uv run intuit mcp list-mcp-tools
 ```
+
+Once connected, you can use the tools from the external MCP server in your conversations with Intuit. The tools will be prefixed with "mcp_" to distinguish them from local tools.
+
+#### MCP Architecture
+
+The MCP integration in Intuit follows a modular design:
+
+1. **MCP Server**: Implemented in `src/intuit/mcp_server.py`, it uses FastMCP to expose Intuit's tools as MCP resources.
+2. **MCP Client**: Implemented in `src/intuit/agent.py`, it connects to external MCP servers and wraps their tools for use by the agent.
+3. **Tool Wrappers**: The `MCPToolWrapper` class in `src/intuit/agent.py` wraps external MCP tools to make them look like local tools to the agent.
+4. **Error Handling**: Robust error handling and fallback mechanisms are implemented for MCP tool execution.
 
 ## Available Tool Commands
 
@@ -307,6 +354,116 @@ Intuit includes a persistent memory system powered by ChromaDB that allows the a
   ```
 
 Memories are stored in the `.memory` directory using ChromaDB and persist between sessions, allowing Intuit to maintain context over time.
+
+## MCP Usage Examples
+
+Here are some detailed examples of how to use Intuit's MCP functionality:
+
+### Starting the MCP Server
+
+Start the MCP server to expose Intuit's tools to other AI agents:
+
+```bash
+# Start the server on the default host and port (localhost:8000)
+uv run intuit mcp start-server
+
+# Start the server on a custom host and port
+uv run intuit mcp start-server --host 0.0.0.0 --port 9000
+```
+
+### Checking MCP Server Status
+
+Check if the MCP server is running and see available tools:
+
+```bash
+uv run intuit mcp status
+```
+
+### Listing Available MCP Tools
+
+List all tools available on the MCP server in a human-readable format:
+
+```bash
+uv run intuit mcp list-tools
+```
+
+### Connecting to an External MCP Server
+
+Connect Intuit to an external MCP server to use its tools:
+
+```bash
+# In interactive mode
+uv run intuit chat
+> connect to MCP server at http://localhost:8000
+```
+
+### Using MCP Tools in Conversations
+
+Once connected to an MCP server, you can use its tools in conversations:
+
+```bash
+# Using a calendar tool from an MCP server
+uv run intuit chat "Add a meeting with John on Friday at 2 PM to my calendar"
+
+# Using a weather tool from an MCP server
+uv run intuit chat "What's the weather like in San Francisco?"
+
+# Taking a screenshot using the MCP screenshot tool
+uv run intuit chat "Take a screenshot of my screen"
+```
+
+### Using MCP Tools Programmatically
+
+You can also use MCP tools programmatically in your Python code:
+
+```python
+import asyncio
+from intuit.agent import Agent
+from intuit.tools.basetool import BaseTool
+
+async def main():
+    # Create an agent with default tools
+    agent = Agent(tools=[])
+    
+    # Connect to an MCP server
+    await agent.connect_to_mcp_server("http://localhost:8000")
+    
+    # List available MCP tools
+    print(agent.list_mcp_tools())
+    
+    # Use an MCP tool
+    result = await agent.process_input("Take a screenshot of my screen")
+    print(result)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+### Creating a Custom MCP Tool
+
+You can create your own custom MCP tools and expose them via the MCP server:
+
+```python
+# In src/intuit/mcp_server.py
+from mcp.server.fastmcp.utilities.types import Image as MCPImage
+import io
+import pyautogui
+
+@mcp_server.tool()
+def my_custom_tool(param1: str, param2: int = 10) -> str:
+    """
+    A custom tool that does something useful.
+    
+    Args:
+        param1: The first parameter
+        param2: The second parameter (default: 10)
+        
+    Returns:
+        Result of the operation
+    """
+    # Your custom tool implementation here
+    return f"Processed {param1} with parameter {param2}"
+```
 
 ## Project Structure
 
