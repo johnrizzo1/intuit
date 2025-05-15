@@ -996,6 +996,32 @@ def list_mcp_server_tools():
 
 
 @app.command()
+def gui():
+    """Start the Intuit assistant in GUI mode with the hockey puck interface."""
+    import os
+    import subprocess
+    
+    # Get the path to the standalone GUI script
+    script_path = os.path.join(os.path.dirname(__file__), "ui", "gui", "standalone_gui.py")
+    
+    if not os.path.exists(script_path):
+        print(f"Error: GUI script not found at {script_path}")
+        sys.exit(1)
+    
+    print("Starting Intuit in GUI mode...")
+    try:
+        # Run the standalone GUI script
+        subprocess.run([sys.executable, script_path], check=True)
+    except KeyboardInterrupt:
+        print("\nExiting GUI mode...")
+    except subprocess.CalledProcessError as e:
+        print(f"Error running GUI: {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error starting GUI: {e}", file=sys.stderr)
+        sys.exit(1)
+
+@app.command()
 def chat(
     query: Optional[str] = typer.Argument(None, help="Query to process"),
     model: str = typer.Option(os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini"), help="Model to use (can also be set via OPENAI_MODEL_NAME env var)"),

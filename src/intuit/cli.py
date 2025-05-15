@@ -10,6 +10,13 @@ from intuit.memory.store import IntuitMemoryStore # Import IntuitMemoryStore
 from datetime import datetime # Import datetime for parsing reminder time
 import asyncio # Import asyncio for running async functions
 
+# Import GUI module
+try:
+    from intuit.ui.gui import start_gui, stop_gui
+    GUI_AVAILABLE = True
+except ImportError:
+    GUI_AVAILABLE = False
+
 def parse_reminder_time(time_str: str) -> datetime:
     """Parses a string into a datetime object for reminder time."""
     # This is a basic example; a real implementation would need robust parsing
@@ -62,6 +69,9 @@ def main():
         parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging")
 
         subparsers = parser.add_subparsers(dest="command", help="Available commands")
+        
+        # GUI command
+        gui_parser = subparsers.add_parser("gui", help="Start the application in GUI mode with the hockey puck interface")
 
         # Search command
         search_parser = subparsers.add_parser("search", help="Search for information")
@@ -173,7 +183,21 @@ def main():
             print(f"Error initializing memory store: {str(e)}", file=sys.stderr)
             memory_store = None
 
-        if args.command == "search":
+        if args.command == "gui":
+            if not GUI_AVAILABLE:
+                print("Error: GUI mode is not available. Make sure PySide6 is installed.", file=sys.stderr)
+                print("You can install it with: pip install PySide6", file=sys.stderr)
+                sys.exit(1)
+                
+            print("Starting Intuit in GUI mode...")
+            try:
+                # Start the GUI in blocking mode
+                start_gui(block=True)
+                return  # Exit after GUI closes
+            except Exception as e:
+                print(f"Error starting GUI: {str(e)}", file=sys.stderr)
+                sys.exit(1)
+        elif args.command == "search":
             if not args.query:
                 print("Error: Query is required for search command", file=sys.stderr)
                 sys.exit(1)

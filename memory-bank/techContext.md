@@ -10,6 +10,7 @@ This document details the technologies used, development setup, technical constr
 - Vector database (for file content)
 - Curses (CLI UI)
 - Voice libraries (for real-time interaction)
+- PySide6 (for GUI implementation)
 
 ## Development Setup
 
@@ -28,9 +29,11 @@ This document details the technologies used, development setup, technical constr
 - Python packages (see requirements.txt)
 - devenv
 - CLI/voice libraries
+- PySide6 (Qt for Python)
 
 ## Tool Usage Patterns
 
 - CLI for command-based queries
 - Curses for interactive UI
 - Voice for real-time, full-duplex conversation
+- GUI for visual representation of AI with reactive lighting effects

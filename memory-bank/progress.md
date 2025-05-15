@@ -21,6 +21,18 @@ This document tracks what works, what's left to build, the current status, known
 - Agent updated to support MCP tools.
 - CLI commands added for MCP server management (start, list tools, status).
 - Restart script created for the MCP server.
+- Unit tests for MCP server functionality implemented and passing.
+- Comprehensive MCP documentation added to README.md.
+- MCP usage examples added to README.md.
+- Practical example script created for using MCP functionality.
+- Frameless circular window shaped like a hockey puck implemented using PySide6.
+- Isometric 3D effect created with shadowing and gradient effects.
+- Dynamic lighting effects (pulse and ripple) implemented that react to AI speech.
+- Interactive controls added (keyboard shortcuts and mouse dragging).
+- Integration module developed to connect the GUI with the existing AI system.
+- Testing tools provided to demonstrate and test the GUI functionality.
+- GUI command added to the CLI to start the application in GUI mode.
+- Standalone GUI script created that can be run independently.
 
 ## What's Left to Build
 
@@ -36,6 +48,15 @@ This document tracks what works, what's left to build, the current status, known
 - MCP integration has been successfully implemented, enabling both client and server functionality.
 - The system can now expose its tools to external AI agents and connect to external MCP servers.
 - The RAG pipeline has been fixed and is now functioning properly, enabling semantic search of indexed files.
+- MCP server functionality is fully tested with passing unit tests.
+- MCP integration is comprehensively documented in the README.md with usage examples.
+- A practical example script is available for developers to understand how to use MCP functionality.
+- A frameless circular window shaped like a hockey puck has been implemented with PySide6.
+- The GUI features isometric 3D effects and dynamic lighting that reacts to AI speech.
+- Interactive controls allow users to move the window and toggle between different lighting effects.
+- The GUI can be integrated with the existing AI system to provide visual feedback during speech.
+- The application can be started in GUI mode using the `intuit gui` command.
+- A standalone GUI script is available for direct execution without dependencies.
 
 ## Known Issues
 
@@ -64,3 +85,10 @@ This document tracks what works, what's left to build, the current status, known
 - Used the MCP protocol as a standardized way for AI models to interact with external tools and resources.
 - Implemented a screenshot tool as a proof of concept for MCP integration.
 - Added robust error handling and fallback mechanisms for MCP tool execution.
+- Completed comprehensive documentation and testing for MCP functionality.
+- Created practical examples to demonstrate MCP usage for developers.
+- Implemented a frameless circular window shaped like a hockey puck for a unique AI visual representation.
+- Chose PySide6 for the GUI implementation due to its modern features and animation capabilities.
+- Created dynamic lighting effects that react to AI speech for an engaging user experience.
+- Added interactive controls for user manipulation of the GUI.
+- Designed the GUI to be modular and easily integrated with the existing AI system.
