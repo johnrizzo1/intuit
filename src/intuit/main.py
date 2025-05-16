@@ -15,6 +15,8 @@ from datetime import datetime # Import datetime
 from dotenv import load_dotenv
 import os
 import time # Added for MCP server keep-alive
+import tempfile
+import json
 
 # Load environment variables from .env file
 load_dotenv()
@@ -997,9 +999,11 @@ def list_mcp_server_tools():
 
 @app.command()
 def gui(
+    voice: bool = typer.Option(True, "--voice/--no-voice", help="Enable/disable voice interface"),
+    voice_language: str = typer.Option("en", help="Language for voice output"),
+    voice_slow: bool = typer.Option(False, "--slow/--no-slow", help="Speak slowly"),
 ):
     """Start the Intuit assistant in GUI mode with the hockey puck interface."""
-    import os
     import subprocess
     
     # Get the path to the standalone GUI script
@@ -1009,11 +1013,32 @@ def gui(
         print(f"Error: GUI script not found at {script_path}")
         sys.exit(1)
     
+    # Create a configuration dictionary
+    config = {
+        "voice_enabled": voice,
+        "voice_language": voice_language,
+        "voice_slow": voice_slow
+    }
+    
+    # Create a temporary config file
+    config_path = os.path.join(tempfile.gettempdir(), "intuit_gui_config.json")
+    with open(config_path, "w") as f:
+        json.dump(config, f)
+    
     print("Starting Intuit in GUI mode...")
+    if voice:
+        print("Voice interface enabled")
+    
     try:
-        # Run the standalone GUI script
-        subprocess.run([sys.executable, script_path], check=True)
+        # Run the standalone GUI script with the config file path as an argument
+        subprocess.run([sys.executable, script_path, config_path], check=True)
         print("GUI closed")
+        
+        # Clean up the config file
+        try:
+            os.remove(config_path)
+        except:
+            pass
     except KeyboardInterrupt:
         print("\nExiting GUI mode...")
     except subprocess.CalledProcessError as e:

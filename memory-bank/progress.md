@@ -33,6 +33,20 @@ This document tracks what works, what's left to build, the current status, known
 - Testing tools provided to demonstrate and test the GUI functionality.
 - GUI command added to the CLI to start the application in GUI mode.
 - Standalone GUI script created that can be run independently.
+- Voice integration with the GUI implemented using a multi-process architecture.
+- Inter-process communication between GUI and voice processes implemented.
+- Speech metrics extraction for dynamic visualization implemented.
+- Controls added to toggle voice functionality (keyboard shortcuts and context menu).
+- GUI command updated to support voice configuration options.
+- Voice functionality enabled by default in the GUI for a more interactive experience.
+- Fixed audio playback issue that was causing the application to hang by implementing audio playback in a separate thread.
+- Fixed voice recognition issue that was causing the application to hang when it couldn't understand speech.
+- Implemented robust conversation flow with automatic listening after speaking.
+- Added helpful feedback when speech isn't recognized.
+- Fixed issue with conversation stopping after one interaction.
+- Ensured continuous conversation loop for a natural interaction experience.
+- Implemented simulated AI agent integration to process recognized speech and generate contextual responses.
+- Added complete voice conversation flow: speech recognition → AI processing → text-to-speech response.
 
 ## What's Left to Build
 
@@ -60,7 +74,8 @@ This document tracks what works, what's left to build, the current status, known
 
 ## Known Issues
 
-- Voice integration with the GUI mode has been temporarily removed due to stability issues.
+- Full agent integration with the voice interface is not yet implemented.
+- No wake word detection for voice activation.
 
 ## Recently Fixed Issues
 
@@ -75,6 +90,7 @@ This document tracks what works, what's left to build, the current status, known
 - Added a special case in the agent's process_input method to directly use the filesystem tool when the user asks to list all indexed files, bypassing the agent_executor.
 - Fixed the special case to use the async version of the tool's run method (_arun) instead of the synchronous version (_run) to handle tools that only support async execution.
 - Added comprehensive logging to all tool methods (FilesystemTool, CustomMCPTool, MCPToolWrapper) to track when and how they are called, including caller information.
+- Reimplemented voice integration with the GUI using a multi-process architecture to resolve stability issues.
 
 ## Evolution of Project Decisions
 
@@ -92,3 +108,6 @@ This document tracks what works, what's left to build, the current status, known
 - Created dynamic lighting effects that react to AI speech for an engaging user experience.
 - Added interactive controls for user manipulation of the GUI.
 - Designed the GUI to be modular and easily integrated with the existing AI system.
+- Adopted a multi-process architecture for voice processing to improve stability and responsiveness.
+- Implemented inter-process communication via queues for data exchange between GUI and voice processes.
+- Created a configuration system for voice settings via command-line options and configuration files.

@@ -11,6 +11,9 @@ import time
 import random
 import threading
 import math  # Added for math functions used in SmokeEffect
+import multiprocessing
+import json
+import os
 from PySide6.QtCore import Qt, QSize, Signal, Slot, QTimer, QPoint, QPointF, QRectF
 from PySide6.QtGui import (
     QIcon, QAction, QColor, QPainter, QPainterPath, QRegion,
@@ -19,9 +22,21 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QGraphicsDropShadowEffect,
-    QGraphicsView, QGraphicsScene, QGraphicsEllipseItem, 
-    QGraphicsItem, QStyleOptionGraphicsItem
+    QGraphicsView, QGraphicsScene, QGraphicsEllipseItem,
+    QGraphicsItem, QStyleOptionGraphicsItem, QMenu
 )
+# Import the voice process manager
+try:
+    # When imported as a module
+    from .voice_process import VoiceProcessManager
+except ImportError:
+    # When run as a standalone script
+    import os
+    import sys
+    # Add the parent directory to sys.path
+    sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+    from voice_process import VoiceProcessManager
+
 
 
 # Light Effects
@@ -614,8 +629,13 @@ class IntuitGUI(QWidget):
     This window displays the hockey puck visualization and handles user input.
     """
     
-    def __init__(self):
-        """Initialize the main GUI window."""
+    def __init__(self, config=None):
+        """
+        Initialize the main GUI window.
+        
+        Args:
+            config: Optional configuration dictionary
+        """
         super().__init__()
         
         # Set up window properties
@@ -640,6 +660,28 @@ class IntuitGUI(QWidget):
         
         # Set up the speech callback
         self.speech_callback = None
+        
+        # Process configuration
+        voice_enabled = False
+        voice_language = "en"
+        voice_slow = False
+        
+        if config:
+            voice_enabled = config.get("voice_enabled", False)
+            voice_language = config.get("voice_language", "en")
+            voice_slow = config.get("voice_slow", False)
+        
+        # Set up voice process manager
+        self.voice_manager = VoiceProcessManager(language=voice_language, slow=voice_slow)
+        self.voice_active = False
+        self.voice_timer = QTimer(self)
+        self.voice_timer.timeout.connect(self.process_voice_data)
+        self.voice_timer.start(50)  # Check for voice data every 50ms
+        
+        # Auto-start voice if enabled in config
+        if voice_enabled:
+            # Use a timer to start voice after the GUI is fully initialized
+            QTimer.singleShot(500, self.toggle_voice)
         
     def reactToSpeech(self, volume: float, pitch: float):
         """
@@ -667,6 +709,146 @@ class IntuitGUI(QWidget):
         """
         self.speech_callback = callback
         
+    def process_voice_data(self):
+        """Process data from the voice process."""
+        if not self.voice_manager.is_running():
+            return
+            
+        # Get data from the voice process
+        data = self.voice_manager.get_data()
+        if data:
+            data_type = data.get('type')
+            
+            if data_type == 'metrics':
+                # Update the puck visualization with speech metrics
+                volume = data.get('volume', 0.0)
+                pitch = data.get('pitch', 0.5)
+                self.reactToSpeech(volume, pitch)
+            
+            elif data_type == 'text':
+                # Handle recognized text
+                content = data.get('content', '')
+                if content:
+                    print(f"Recognized: {content}")
+                    
+                    # Simulate querying the agent/model
+                    print("Querying AI model with recognized text...")
+                    
+                    # In a real implementation, this would call the Intuit AI agent
+                    # For demonstration, we'll simulate different responses based on the input
+                    if "weather" in content.lower():
+                        response = "The weather today is sunny with a high of 75 degrees."
+                    elif "time" in content.lower():
+                        response = "The current time is " + time.strftime("%I:%M %p") + "."
+                    elif "hello" in content.lower() or "hi" in content.lower():
+                        response = "Hello there! How can I assist you today?"
+                    elif "help" in content.lower():
+                        response = "I can help you with various tasks. Try asking about the weather, time, or say hello!"
+                    else:
+                        response = f"I received your request about '{content}'. In a real implementation, this would be processed by the Intuit AI agent."
+                    
+                    print(f"AI response: {response}")
+                    
+                    # Convert the text response to voice
+                    if self.voice_active:
+                        self.voice_manager.speak(response)
+                else:
+                    # Empty content means speech wasn't recognized
+                    # We'll continue listening in the 'speaking' handler after the error message
+                    pass
+                
+            elif data_type == 'process_text':
+                # Handle text that needs to be processed by the AI model
+                content = data.get('content', '')
+                print(f"Processing: {content}")
+                
+                # In a real implementation, this would call the Intuit AI agent
+                # For now, we'll use the provided content
+                if content.startswith("I could not understand"):
+                    # This is a notification from the voice process
+                    if self.voice_active:
+                        self.voice_manager.speak(content)
+            
+            elif data_type == 'speaking':
+                # Handle speaking state changes
+                state = data.get('state')
+                if state == 'start':
+                    print("AI is speaking...")
+                elif state == 'stop':
+                    print("AI finished speaking")
+                    
+                    # If there was an error, log it
+                    if 'error' in data:
+                        print(f"Speech error: {data['error']}")
+                    
+                    # Always start listening again after speaking stops
+                    # This creates a continuous conversation loop
+                    if self.voice_active:
+                        print("Listening for next command...")
+                        QTimer.singleShot(1000, lambda: self.voice_manager.listen(timeout=5.0, process=True))
+            
+            elif data_type == 'error':
+                # Handle errors
+                error_msg = data.get('message', 'Unknown error')
+                print(f"Voice process error: {error_msg}")
+                
+                # If the error is about missing dependencies, show a more helpful message
+                if "dependencies are not installed" in error_msg:
+                    print("To install required packages, run:")
+                    print("pip install SpeechRecognition gTTS sounddevice numpy soundfile")
+                    
+                    # Disable voice to prevent further errors
+                    self.voice_active = False
+    
+    def toggle_voice(self):
+        """Toggle voice functionality on/off."""
+        if self.voice_active:
+            # Stop the voice process
+            self.voice_manager.stop()
+            self.voice_active = False
+            print("Voice interface deactivated")
+        else:
+            # Start the voice process
+            if self.voice_manager.start():
+                self.voice_active = True
+                print("Voice interface activated")
+                
+                # Welcome message
+                self.voice_manager.speak("Voice interface activated. How can I help you?")
+                
+                # Start a timer to begin listening after the welcome message
+                QTimer.singleShot(2000, lambda: self.voice_manager.listen(timeout=5.0, process=True))
+    
+    def contextMenuEvent(self, event):
+        """Show context menu on right-click."""
+        menu = QMenu(self)
+        
+        # Add menu items
+        toggle_effect_action = menu.addAction("Toggle Effect")
+        toggle_animation_action = menu.addAction("Toggle Animation")
+        toggle_voice_action = menu.addAction("Toggle Voice")
+        menu.addSeparator()
+        exit_action = menu.addAction("Exit")
+        
+        # Update voice action text based on current state
+        if self.voice_active:
+            toggle_voice_action.setText("Disable Voice")
+        else:
+            toggle_voice_action.setText("Enable Voice")
+        
+        # Show the menu and get the selected action
+        action = menu.exec(self.mapToGlobal(event.pos()))
+        
+        # Handle the selected action
+        if action == toggle_effect_action:
+            self.puck_view.toggle_effect()
+        elif action == toggle_animation_action:
+            self.puck_view.toggle_test_animation()
+        elif action == toggle_voice_action:
+            self.toggle_voice()
+        elif action == exit_action:
+            self.close()
+    
     def keyPressEvent(self, event):
         """Handle key press events."""
         if event.key() == Qt.Key_Escape:
@@ -678,8 +860,21 @@ class IntuitGUI(QWidget):
         elif event.key() == Qt.Key_T:
             # Toggle test animation
             self.puck_view.toggle_test_animation()
+        elif event.key() == Qt.Key_V:
+            # Toggle voice functionality
+            self.toggle_voice()
         else:
             super().keyPressEvent(event)
+    
+    def closeEvent(self, event):
+        """Handle window close event."""
+        # Stop the voice process if it's running
+        if self.voice_active:
+            self.voice_manager.stop()
+            self.voice_active = False
+        
+        # Accept the close event
+        event.accept()
 
 
 # Main function
@@ -688,8 +883,17 @@ def main():
     # Create the application
     app = QApplication(sys.argv)
     
+    # Load configuration if provided
+    config = None
+    if len(sys.argv) > 1 and os.path.exists(sys.argv[1]):
+        try:
+            with open(sys.argv[1], 'r') as f:
+                config = json.load(f)
+        except Exception as e:
+            print(f"Error loading configuration: {e}")
+    
     # Create the main window
-    window = IntuitGUI()
+    window = IntuitGUI(config)
     window.show()
     
     # Print instructions
@@ -699,6 +903,8 @@ def main():
     print("- Drag with mouse to move the window")
     print("- Press Space to toggle between smoke, pulse and ripple effects")
     print("- Press T to stop/restart animation (enabled by default)")
+    print("- Press V to toggle voice interface")
+    print("- Right-click for menu")
     print("- Press Escape to close")
     
     # Run the application

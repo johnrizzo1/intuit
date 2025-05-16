@@ -4,7 +4,7 @@ This document tracks the current work focus, recent changes, next steps, active 
 
 ## Current Work Focus
 
-Refining and expanding the Model Context Protocol (MCP) integration that enables Intuit to function as both an MCP client and server.
+Integrating voice capabilities with the GUI interface to provide a complete interactive experience while ensuring stability and responsiveness.
 
 ## Recent Changes
 
@@ -31,6 +31,22 @@ Refining and expanding the Model Context Protocol (MCP) integration that enables
 - Added a `gui` command to the CLI to start the application in GUI mode.
 - Created a standalone GUI script that can be run independently.
 - Simplified the GUI command for better reliability and maintainability.
+- Implemented voice integration with the GUI using a multi-process architecture.
+- Created a voice process manager to handle voice input/output in a separate process.
+- Added inter-process communication between GUI and voice processes.
+- Implemented speech metrics extraction for dynamic visualization.
+- Added controls to toggle voice functionality (keyboard shortcuts and context menu).
+- Updated the GUI command to support voice configuration options.
+- Enabled voice by default in the GUI UI for a more interactive experience.
+- Fixed audio playback issue that was causing the application to hang by implementing audio playback in a separate thread.
+- Fixed voice recognition issue that was causing the application to hang when it couldn't understand speech.
+- Implemented robust conversation flow with automatic listening after speaking.
+- Added helpful feedback when speech isn't recognized.
+- Fixed issue with conversation stopping after one interaction.
+- Ensured continuous conversation loop for a natural interaction experience.
+- Implemented simulated AI agent integration to process recognized speech and generate contextual responses.
+- Added complete voice conversation flow: speech recognition → AI processing → text-to-speech response.
+- Created comprehensive documentation for the voice integration implementation.
 
 ## Next Steps
 
@@ -38,7 +54,8 @@ Refining and expanding the Model Context Protocol (MCP) integration that enables
 - Enhance vector database capabilities further (e.g., incremental indexing, better metadata extraction).
 - Optimize performance and latency.
 - Improve MCP client unit tests to handle complex initialization requirements.
-- Revisit voice integration with the GUI mode to provide a complete interactive experience.
+- Enhance the voice integration with wake word detection and more advanced speech processing.
+- Connect the voice interface to the agent for full conversational capabilities.
 
 ## Active Decisions and Considerations
 
@@ -49,6 +66,9 @@ Refining and expanding the Model Context Protocol (MCP) integration that enables
 - Tools are registered with the MCP server using decorators.
 - The agent can discover and use tools from connected MCP servers.
 - Robust error handling and fallback mechanisms are implemented for MCP tool execution.
+- Voice processing runs in a separate process to avoid blocking the GUI and ensure stability.
+- Inter-process communication is used to synchronize the GUI and voice processes.
+- The voice interface can be enabled/disabled at runtime or via command-line options.
 
 ## Important Patterns and Preferences
 
@@ -56,6 +76,8 @@ Refining and expanding the Model Context Protocol (MCP) integration that enables
 - Unified backend logic for CLI and voice commands.
 - MCP protocol for tool integration.
 - Consistent error handling and user feedback.
+- Multi-process architecture for resource-intensive operations.
+- Bidirectional communication between processes using queues.
 
 ## Learnings and Project Insights
 
@@ -108,3 +130,11 @@ Refining and expanding the Model Context Protocol (MCP) integration that enables
 - Sometimes it's better to simplify functionality rather than trying to integrate too many features at once, especially when dealing with complex systems like GUI and voice interfaces.
 - When facing stability issues with multi-threaded applications, simplifying the architecture can lead to more reliable behavior.
 - Keeping CLI commands focused on a single responsibility makes them more maintainable and less prone to errors.
+- Using a multi-process architecture for resource-intensive operations like voice processing improves stability and responsiveness.
+- Inter-process communication via queues provides a clean way to exchange data between separate processes.
+- Extracting speech metrics (volume, pitch) from audio input enables dynamic visual feedback.
+- Polling-based communication between processes is simple but effective for non-critical updates.
+- Graceful shutdown of child processes is essential to prevent resource leaks and orphaned processes.
+- Providing multiple ways to control features (keyboard shortcuts, context menu, command-line options) improves accessibility and user experience.
+- Configuration via command-line options and configuration files allows for flexible deployment and testing.
+- Separating the voice processing from the GUI thread ensures the interface remains responsive during speech recognition and synthesis.
