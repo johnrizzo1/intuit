@@ -18,8 +18,14 @@ from ..agent import Agent
 class VoiceInterface:
     """Voice interface for Intuit."""
     
-    def __init__(self, agent: Agent):
-        """Initialize the voice interface."""
+    def __init__(self, agent: Agent, stop_event=None):
+        """
+        Initialize the voice interface.
+        
+        Args:
+            agent: The agent to use for processing queries
+            stop_event: Optional event to signal when to stop the interface
+        """
         self.agent = agent
         self.recognizer = sr.Recognizer()
         self.running = True
@@ -27,6 +33,7 @@ class VoiceInterface:
         self.sample_rate = 16000
         self.channels = 1
         self.dtype = np.float32
+        self.stop_event = stop_event
     
     def _audio_callback(self, indata, frames, time, status):
         """Callback for audio input stream."""
@@ -34,9 +41,22 @@ class VoiceInterface:
             print(f"Status: {status}")
         self.audio_queue.put(indata.copy())
     
-    async def _listen(self) -> Optional[str]:
-        """Listen for user input."""
+    async def _listen(self, timeout: float = 5.0) -> Optional[str]:
+        """
+        Listen for user input.
+        
+        Args:
+            timeout: Time to listen for in seconds
+            
+        Returns:
+            The recognized text or None if no speech was detected
+        """
         print("Listening...")
+        
+        # Check if we should stop
+        if self.stop_event and self.stop_event.is_set():
+            self.running = False
+            return None
         
         # Start recording
         with sd.InputStream(
@@ -45,8 +65,17 @@ class VoiceInterface:
             dtype=self.dtype,
             callback=self._audio_callback
         ):
-            # Record for 5 seconds
-            await asyncio.sleep(5)
+            # Record for the specified timeout
+            if timeout > 0:
+                # Break the sleep into smaller chunks to check stop_event
+                chunks = int(timeout / 0.1)
+                for _ in range(chunks):
+                    await asyncio.sleep(0.1)
+                    if self.stop_event and self.stop_event.is_set():
+                        self.running = False
+                        return None
+            else:
+                await asyncio.sleep(5)  # Default to 5 seconds
         
         # Process recorded audio
         audio_data = []
@@ -87,13 +116,25 @@ class VoiceInterface:
             os.system(f"afplay {fp.name}")  # macOS specific
             os.unlink(fp.name)
     
-    async def run(self) -> None:
-        """Run the voice interface."""
+    async def run(self, timeout: float = 5.0) -> None:
+        """
+        Run the voice interface.
+        
+        Args:
+            timeout: Time to listen for in seconds for each iteration
+        """
         try:
             while self.running:
+                # Check if we should stop
+                if self.stop_event and self.stop_event.is_set():
+                    break
+                
                 # Listen for input
-                query = await self._listen()
+                query = await self._listen(timeout)
                 if not query:
+                    # Check again if we should stop
+                    if self.stop_event and self.stop_event.is_set():
+                        break
                     continue
                 
                 # Handle exit command
@@ -103,7 +144,16 @@ class VoiceInterface:
                 # Process query
                 try:
                     print("Processing...")
+                    # Check if we should stop
+                    if self.stop_event and self.stop_event.is_set():
+                        break
+                        
                     response = await self.agent.run(query)
+                    
+                    # Check if we should stop
+                    if self.stop_event and self.stop_event.is_set():
+                        break
+                        
                     # Don't call self._speak if the agent already has voice output
                     # This prevents the response from being spoken twice
                     if not self.agent.voice:
@@ -111,7 +161,10 @@ class VoiceInterface:
                 except Exception as e:
                     error_msg = f"Error: {str(e)}"
                     print(error_msg)
-                    await self._speak(error_msg)
+                    
+                    # Check if we should stop
+                    if not self.stop_event or not self.stop_event.is_set():
+                        await self._speak(error_msg)
                     break  # Exit after error
         except Exception as e:
             print(f"Fatal error: {str(e)}")
@@ -119,15 +172,28 @@ class VoiceInterface:
             self.running = False
             await self._speak("Goodbye!")
 
-async def run_voice(agent: Agent) -> None:
-    """Run the voice interface."""
+async def run_voice(agent: Agent, timeout: float = 5.0, stop_event=None) -> None:
+    """
+    Run the voice interface.
+    
+    Args:
+        agent: The agent to use for processing queries
+        timeout: Time to listen for in seconds for each iteration
+        stop_event: Optional event to signal when to stop the interface
+    """
     try:
         # Start reminder service if initialized (inside the event loop)
         if agent.reminder_service:
             agent.reminder_service.start()
             
-        interface = VoiceInterface(agent)
-        await interface.run()
+        interface = VoiceInterface(agent, stop_event)
+        await interface.run(timeout)
+    except asyncio.CancelledError:
+        print("Voice interface cancelled")
+    except KeyboardInterrupt:
+        print("Voice interface interrupted")
+    except Exception as e:
+        print(f"Voice interface error: {e}")
     finally:
         # Stop reminder service if it was started
         if agent.reminder_service:

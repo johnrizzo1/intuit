@@ -30,6 +30,7 @@ Refining and expanding the Model Context Protocol (MCP) integration that enables
 - Provided testing tools to demonstrate and test the GUI functionality.
 - Added a `gui` command to the CLI to start the application in GUI mode.
 - Created a standalone GUI script that can be run independently.
+- Simplified the GUI command for better reliability and maintainability.
 
 ## Next Steps
 
@@ -37,6 +38,7 @@ Refining and expanding the Model Context Protocol (MCP) integration that enables
 - Enhance vector database capabilities further (e.g., incremental indexing, better metadata extraction).
 - Optimize performance and latency.
 - Improve MCP client unit tests to handle complex initialization requirements.
+- Revisit voice integration with the GUI mode to provide a complete interactive experience.
 
 ## Active Decisions and Considerations
 
@@ -103,3 +105,6 @@ Refining and expanding the Model Context Protocol (MCP) integration that enables
 - Using relative imports in Python packages can be tricky; sometimes absolute imports or standalone scripts are more reliable.
 - Subprocess can be used to launch GUI applications from CLI commands, providing a clean separation between components.
 - Creating standalone scripts that don't rely on package imports can simplify deployment and testing.
+- Sometimes it's better to simplify functionality rather than trying to integrate too many features at once, especially when dealing with complex systems like GUI and voice interfaces.
+- When facing stability issues with multi-threaded applications, simplifying the architecture can lead to more reliable behavior.
+- Keeping CLI commands focused on a single responsibility makes them more maintainable and less prone to errors.

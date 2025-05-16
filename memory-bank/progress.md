@@ -60,7 +60,7 @@ This document tracks what works, what's left to build, the current status, known
 
 ## Known Issues
 
-- No critical issues reported at this stage.
+- Voice integration with the GUI mode has been temporarily removed due to stability issues.
 
 ## Recently Fixed Issues
 

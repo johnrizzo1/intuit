@@ -10,7 +10,8 @@ import sys
 import time
 import random
 import threading
-from PySide6.QtCore import Qt, QSize, Signal, Slot, QTimer, QPoint, QRectF
+import math  # Added for math functions used in SmokeEffect
+from PySide6.QtCore import Qt, QSize, Signal, Slot, QTimer, QPoint, QPointF, QRectF
 from PySide6.QtGui import (
     QIcon, QAction, QColor, QPainter, QPainterPath, QRegion,
     QBrush, QPen, QLinearGradient, QRadialGradient
@@ -37,7 +38,7 @@ class PulseEffect:
         self.intensity = 0.0
         self.target_intensity = 0.0
         self.color = QColor(0, 120, 255)  # Default blue color
-        self.transition_speed = 0.1
+        self.transition_speed = 0.05  # Slower transition speed (was 0.1)
         
     def update(self, volume: float, pitch: float, dt: float) -> None:
         """
@@ -80,11 +81,11 @@ class PulseEffect:
         # Create a radial gradient for the glow
         center = rect.center()
         radius = rect.width() / 2
-        gradient = QRadialGradient(center, radius * 1.5)
+        gradient = QRadialGradient(center, radius * 1.2)  # Reduced radius multiplier (was 1.5)
         
         # Set up the gradient colors
         color = QColor(self.color)
-        color.setAlphaF(self.intensity * 0.7)  # Adjust alpha based on intensity
+        color.setAlphaF(self.intensity * 0.6)  # Reduced alpha (was 0.7)
         
         gradient.setColorAt(0.0, color)
         color.setAlphaF(0.0)
@@ -94,7 +95,7 @@ class PulseEffect:
         painter.save()
         painter.setPen(Qt.NoPen)
         painter.setBrush(gradient)
-        painter.drawEllipse(rect.adjusted(-radius/2, -radius/2, radius/2, radius/2))
+        painter.drawEllipse(rect.adjusted(-radius/3, -radius/3, radius/3, radius/3))  # Reduced adjustment (was radius/2)
         painter.restore()
 
 
@@ -200,6 +201,160 @@ class RippleEffect:
         painter.restore()
 
 
+class SmokeEffect:
+    """
+    Creates a smoke/energy swirling effect.
+    
+    This effect simulates smoke or energy swirling around inside a transparent globe,
+    creating a dynamic, organic visual representation of AI activity.
+    """
+    
+    def __init__(self):
+        """Initialize the smoke effect."""
+        self.particles = []
+        self.max_particles = 30
+        self.color = QColor(0, 150, 255)  # Default blue color
+        self.spawn_timer = 0.0
+        self.spawn_interval = 0.1
+        self.base_intensity = 0.0
+        self.target_intensity = 0.0
+        self.transition_speed = 0.03  # Very slow transition
+        
+    def update(self, volume: float, pitch: float, dt: float) -> None:
+        """
+        Update the smoke effect based on speech volume and pitch.
+        
+        Args:
+            volume: Speech volume (0.0 to 1.0)
+            pitch: Speech pitch (0.0 to 1.0)
+            dt: Time delta since last update
+        """
+        # Set target intensity based on volume
+        self.target_intensity = volume
+        
+        # Smoothly transition base intensity
+        diff = self.target_intensity - self.base_intensity
+        self.base_intensity += diff * self.transition_speed
+        
+        # Adjust color based on pitch
+        if pitch > 0.7:
+            # High pitch: blue/cyan
+            self.color = QColor(0, 150, 255)
+        elif pitch > 0.4:
+            # Medium pitch: purple
+            self.color = QColor(130, 0, 255)
+        else:
+            # Low pitch: red/orange
+            self.color = QColor(255, 60, 0)
+            
+        # Spawn new particles based on volume
+        self.spawn_timer += dt
+        if self.spawn_timer >= self.spawn_interval and len(self.particles) < self.max_particles:
+            self.spawn_timer = 0.0
+            
+            # Only spawn particles if there's some volume
+            if self.base_intensity > 0.1:
+                # Calculate random position within the globe
+                angle = random.uniform(0, 2 * 3.14159)
+                distance = random.uniform(0, 0.8)  # Keep within 80% of radius
+                
+                # Add some randomness to the color
+                color_var = 30
+                r = max(0, min(255, self.color.red() + random.randint(-color_var, color_var)))
+                g = max(0, min(255, self.color.green() + random.randint(-color_var, color_var)))
+                b = max(0, min(255, self.color.blue() + random.randint(-color_var, color_var)))
+                
+                # Create a new particle
+                self.particles.append({
+                    'x': math.cos(angle) * distance,
+                    'y': math.sin(angle) * distance,
+                    'size': random.uniform(0.05, 0.15),
+                    'life': 1.0,
+                    'decay': random.uniform(0.2, 0.4),
+                    'vx': random.uniform(-0.2, 0.2),
+                    'vy': random.uniform(-0.2, 0.2),
+                    'color': QColor(r, g, b),
+                    'alpha': random.uniform(0.5, 0.8) * self.base_intensity
+                })
+        
+        # Update existing particles
+        i = 0
+        while i < len(self.particles):
+            particle = self.particles[i]
+            
+            # Update position with swirling motion
+            cx = particle['x']  # Current x position relative to center
+            cy = particle['y']  # Current y position relative to center
+            dist = math.sqrt(cx*cx + cy*cy)
+            
+            # Add swirling motion (stronger near center, weaker near edges)
+            swirl_factor = max(0, 0.8 - dist) * 2.0
+            particle['vx'] += -cy * swirl_factor * dt
+            particle['vy'] += cx * swirl_factor * dt
+            
+            # Apply velocity
+            particle['x'] += particle['vx'] * dt
+            particle['y'] += particle['vy'] * dt
+            
+            # Keep particles inside the globe
+            dist = math.sqrt(particle['x']*particle['x'] + particle['y']*particle['y'])
+            if dist > 0.9:  # If near the edge
+                # Normalize and scale back
+                particle['x'] = (particle['x'] / dist) * 0.9
+                particle['y'] = (particle['y'] / dist) * 0.9
+                
+                # Bounce off the edge (reduce velocity and reverse direction)
+                particle['vx'] *= -0.5
+                particle['vy'] *= -0.5
+            
+            # Reduce life
+            particle['life'] -= particle['decay'] * dt
+            
+            # Remove dead particles
+            if particle['life'] <= 0:
+                self.particles.pop(i)
+            else:
+                i += 1
+                
+    def apply(self, painter: QPainter, rect: QRectF) -> None:
+        """
+        Apply the smoke effect to the painter.
+        
+        Args:
+            painter: QPainter to apply the effect to
+            rect: Rectangle to apply the effect within
+        """
+        if not self.particles:
+            return
+            
+        center = rect.center()
+        radius = rect.width() / 2
+        
+        painter.save()
+        
+        for particle in self.particles:
+            # Calculate position in screen coordinates
+            x = center.x() + particle['x'] * radius
+            y = center.y() + particle['y'] * radius
+            size = particle['size'] * radius
+            
+            # Set color with alpha based on life
+            color = QColor(particle['color'])
+            color.setAlphaF(particle['alpha'] * particle['life'])
+            
+            # Draw the particle as a soft gradient circle
+            gradient = QRadialGradient(x, y, size)
+            gradient.setColorAt(0, color)
+            color.setAlphaF(0)
+            gradient.setColorAt(1, color)
+            
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(gradient)
+            painter.drawEllipse(QPointF(x, y), size, size)
+        
+        painter.restore()
+
+
 # Hockey Puck Widget
 class HockeyPuckItem(QGraphicsEllipseItem):
     """
@@ -232,21 +387,24 @@ class HockeyPuckItem(QGraphicsEllipseItem):
         # Set up lighting effects
         self.pulse_effect = PulseEffect()
         self.ripple_effect = RippleEffect()
-        self.current_effect = self.pulse_effect  # Default effect
+        self.smoke_effect = SmokeEffect()  # New smoke effect
+        self.current_effect = self.smoke_effect  # Set smoke effect as default
         
         # Set up animation properties
         self.last_update_time = time.time()
         self.volume = 0.0
         self.pitch = 0.0
-        self.test_animation = False
+        self.test_animation = True  # Enable test animation by default
         self.test_animation_time = 0.0
         
     def toggle_effect(self) -> None:
-        """Toggle between pulse and ripple effects."""
-        if self.current_effect is self.pulse_effect:
+        """Toggle between smoke, pulse and ripple effects."""
+        if self.current_effect is self.smoke_effect:
+            self.current_effect = self.pulse_effect
+        elif self.current_effect is self.pulse_effect:
             self.current_effect = self.ripple_effect
         else:
-            self.current_effect = self.pulse_effect
+            self.current_effect = self.smoke_effect
             
     def toggle_test_animation(self) -> None:
         """Toggle the test animation on/off."""
@@ -351,8 +509,9 @@ class HockeyPuckView(QGraphicsView):
         """
         super().__init__(parent)
         
-        # Set up the scene
+        # Set up the scene with transparent background
         self.scene = QGraphicsScene(self)
+        self.scene.setBackgroundBrush(QBrush(QColor(0, 0, 0, 0)))  # Transparent background
         self.setScene(self.scene)
         
         # Set up the view
@@ -363,6 +522,10 @@ class HockeyPuckView(QGraphicsView):
         self.setBackgroundBrush(QBrush(QColor(0, 0, 0, 0)))  # Transparent background
         self.setFrameShape(QGraphicsView.NoFrame)
         self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
+        
+        # Make sure there's no border or frame
+        self.setStyleSheet("background: transparent; border: none;")
+        self.viewport().setStyleSheet("background: transparent; border: none;")
         
         # Create the hockey puck item
         self.puck_size = 200
@@ -406,7 +569,7 @@ class HockeyPuckView(QGraphicsView):
         self.puck_item.set_speech_data(volume, pitch)
         
     def toggle_effect(self):
-        """Toggle between pulse and ripple effects."""
+        """Toggle between smoke, pulse and ripple effects."""
         self.puck_item.toggle_effect()
         
     def toggle_test_animation(self):
@@ -463,6 +626,7 @@ class IntuitGUI(QWidget):
         # Set up the layout
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)  # Remove spacing between widgets
         self.setLayout(layout)
         
         # Create the hockey puck view
@@ -472,12 +636,7 @@ class IntuitGUI(QWidget):
         # Set up the window size
         self.resize(250, 250)
         
-        # Set up the drop shadow effect
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(20)
-        shadow.setColor(QColor(0, 0, 0, 180))
-        shadow.setOffset(0, 0)
-        self.setGraphicsEffect(shadow)
+        # No drop shadow effect to avoid visible box
         
         # Set up the speech callback
         self.speech_callback = None
@@ -538,8 +697,8 @@ def main():
     print("---------------")
     print("Controls:")
     print("- Drag with mouse to move the window")
-    print("- Press Space to toggle between pulse and ripple effects")
-    print("- Press T to start/stop test animation")
+    print("- Press Space to toggle between smoke, pulse and ripple effects")
+    print("- Press T to stop/restart animation (enabled by default)")
     print("- Press Escape to close")
     
     # Run the application

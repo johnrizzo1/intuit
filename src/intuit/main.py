@@ -996,7 +996,8 @@ def list_mcp_server_tools():
 
 
 @app.command()
-def gui():
+def gui(
+):
     """Start the Intuit assistant in GUI mode with the hockey puck interface."""
     import os
     import subprocess
@@ -1012,6 +1013,7 @@ def gui():
     try:
         # Run the standalone GUI script
         subprocess.run([sys.executable, script_path], check=True)
+        print("GUI closed")
     except KeyboardInterrupt:
         print("\nExiting GUI mode...")
     except subprocess.CalledProcessError as e:
