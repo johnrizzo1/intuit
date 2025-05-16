@@ -15,7 +15,8 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QObject, Signal, Slot, QThread
 
 from .main_gui import IntuitGUI
-
+from .light_effects import PulseEffect, RippleEffect
+from .standalone_gui import HockeyPuckItem  # Import from standalone_gui instead of puck_widget
 
 class SpeechProcessor(QObject):
     """
@@ -84,7 +85,6 @@ class SpeechProcessor(QObject):
             except Exception as e:
                 print(f"Error processing speech data: {e}")
 
-
 class GUIManager:
     """
     Manage the lifecycle of the GUI.
@@ -100,15 +100,19 @@ class GUIManager:
         self.speech_processor = None
         self.app_thread = None
         self.running = False
+        self.agent = None
+        self.voice_manager = None
         
-    def start(self, block: bool = False) -> bool:
+    def start(self, block: bool = False, agent=None, enable_voice: bool = True) -> bool:
         """
         Start the GUI.
         
         Args:
             block: If True, block until the GUI is closed. If False, run the GUI
                   in a separate thread and return immediately.
-                  
+            agent: The agent to use for processing queries
+            enable_voice: Whether to enable voice functionality
+            
         Returns:
             True if the GUI was started successfully, False otherwise.
         """
@@ -116,6 +120,9 @@ class GUIManager:
             return True
             
         try:
+            # Store the agent reference
+            self.agent = agent
+            
             # Create the application
             self.app = QApplication([])
             
@@ -126,6 +133,30 @@ class GUIManager:
             self.speech_processor = SpeechProcessor()
             self.speech_processor.speech_signal.connect(self.window.reactToSpeech)
             self.speech_processor.start()
+            
+            # Initialize voice processing if enabled
+            if enable_voice and agent:
+                # Import here to avoid circular imports
+                from .voice_process import VoiceProcessManager
+                
+                # Create and start the voice process manager
+                self.voice_manager = VoiceProcessManager()
+                if self.voice_manager.start():
+                    print("Voice functionality enabled")
+                    
+                    # Start a thread to monitor the voice process output queue
+                    self.voice_thread = threading.Thread(target=self._monitor_voice_process)
+                    self.voice_thread.daemon = True
+                    self.voice_thread.start()
+                    
+                    # Start with a greeting
+                    self.voice_manager.speak("Hello! I'm Intuit. How can I help you today?")
+                    
+                    # Start listening after the greeting
+                    QThread.msleep(2000)  # Wait for greeting to finish
+                    self.voice_manager.listen()
+                else:
+                    print("Failed to start voice process")
             
             # Show the window
             self.window.show()
@@ -153,6 +184,11 @@ class GUIManager:
             return
             
         self.running = False
+        
+        # Stop the voice manager
+        if self.voice_manager:
+            self.voice_manager.stop()
+            self.voice_manager = None
         
         # Stop the speech processor
         if self.speech_processor:
@@ -187,34 +223,64 @@ class GUIManager:
         finally:
             self.running = False
             
-    def process_speech(self, data: Dict[str, Any]):
-        """
-        Process speech data from the AI system.
-        
-        Args:
-            data: Speech data dictionary with at least 'volume' and 'pitch' keys.
-        """
-        if self.running and self.speech_processor:
-            self.speech_processor.process_speech_data(data)
+    def process_voice_data(self):
+        """Process data from the voice process."""
+        if not self.voice_manager.is_running():
+            return
             
-    def set_speech_callback(self, callback: Optional[Callable[[Dict[str, Any]], None]]):
-        """
-        Set a callback function to be called when speech is detected.
-        
-        Args:
-            callback: Function to call with speech data, or None to remove the callback.
-        """
-        if self.running and self.window:
-            self.window.setSpeechCallback(callback)
+        # Get data from the voice process
+        data = self.voice_manager.get_data()
+        if data:
+            data_type = data.get('type')
             
-    def is_running(self) -> bool:
-        """
-        Check if the GUI is running.
-        
-        Returns:
-            True if the GUI is running, False otherwise.
-        """
-        return self.running
+            if data_type == 'metrics':
+                # Update the puck visualization with speech metrics
+                volume = data.get('volume', 0.0)
+                pitch = data.get('pitch', 0.5)
+                self.reactToSpeech(volume, pitch)
+            
+            elif data_type == 'text':
+                # Handle recognized text
+                content = data.get('content')
+                if content:
+                    print(f"Recognized: {content}")
+                    
+                    # Process the text with the agent
+                    if self.agent:
+                        print("Processing with Intuit agent...")
+                        threading.Thread(
+                            target=self._process_with_agent,
+                            args=(content,)
+                        ).start()
+            
+            elif data_type == 'speaking':
+                # Handle speaking state changes
+                state = data.get('state')
+                if state == 'start':
+                    print("AI is speaking...")
+                elif state == 'stop':
+                    print("AI finished speaking")
+                
+            elif data_type == 'error':
+                # Handle errors
+                message = data.get('message', 'Unknown error')
+                print(f"Voice process error: {message}")
+    
+    def _process_with_agent(self, text):
+        """Process text with the agent and send the response to the voice process."""
+        try:
+            # Process the text with the agent
+            response = asyncio.run(self.agent.run(text))
+            
+            # Send the response to the voice process
+            if response and self.voice_manager:
+                print(f"Agent response: {response}")
+                self.voice_manager.speak(response)
+                
+        except Exception as e:
+            print(f"Error in agent processing: {e}")
+            if self.voice_manager:
+                self.voice_manager.speak(f"Sorry, I encountered an error: {str(e)}")
 
 
 # Singleton instance for easy access
@@ -234,18 +300,20 @@ def get_gui_manager() -> GUIManager:
     return _manager
 
 
-def start_gui(block: bool = False) -> bool:
+def start_gui(block: bool = False, agent=None, enable_voice: bool = True) -> bool:
     """
     Start the GUI.
     
     Args:
         block: If True, block until the GUI is closed. If False, run the GUI
               in a separate thread and return immediately.
+        agent: The agent to use for processing queries
+        enable_voice: Whether to enable voice functionality
               
     Returns:
         True if the GUI was started successfully, False otherwise.
     """
-    return get_gui_manager().start(block)
+    return get_gui_manager().start(block, agent, enable_voice)
 
 
 def stop_gui():

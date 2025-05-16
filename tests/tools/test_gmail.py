@@ -141,4 +141,37 @@ async def test_gmail_tool_error_handling(gmail_tool):
     result = await gmail_tool.run("test query")
     
     assert result["status"] == "error"
-    assert "API Error" in result["message"] 
+    assert "API Error" in result["message"]
+
+@pytest.mark.asyncio
+async def test_gmail_tool_expired_credentials(gmail_tool):
+    """Test handling of expired credentials."""
+    # Simulate expired credentials
+    gmail_tool._disabled = True
+    gmail_tool._disabled_reason = "Google credentials have expired"
+    
+    result = await gmail_tool.run("test query")
+    
+    assert result["status"] == "warning"
+    assert "Gmail functionality is disabled" in result["message"]
+    assert "Google credentials have expired" in result["message"]
+
+@pytest.mark.asyncio
+async def test_gmail_tool_auth_error_handling(gmail_tool):
+    """Test handling of authentication errors."""
+    from googleapiclient.errors import HttpError
+    
+    # Create a mock HttpError with 401 status
+    mock_resp = MagicMock()
+    mock_resp.status = 401
+    http_error = HttpError(resp=mock_resp, content=b"Token expired")
+    
+    # Mock the API call to raise the HttpError
+    gmail_tool._service.users().messages().list.side_effect = http_error
+    
+    result = await gmail_tool.run("test query")
+    
+    assert result["status"] == "error"
+    assert "Authentication failed" in result["message"]
+    assert gmail_tool._disabled is True
+    assert "Google credentials have expired" in gmail_tool._disabled_reason

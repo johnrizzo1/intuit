@@ -6,7 +6,7 @@ with dynamic lighting effects that react to AI speech.
 """
 
 from .main_gui import IntuitGUI
-from .puck_widget import HockeyPuckItem, HockeyPuckView
+from .standalone_gui import HockeyPuckItem, HockeyPuckView
 from .light_effects import PulseEffect, RippleEffect
 from .integration import (
     GUIManager, get_gui_manager, start_gui, stop_gui,

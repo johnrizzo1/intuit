@@ -1570,8 +1570,9 @@ Always be concise and clear in your responses.'''),
             logger.info("Conversation processed by memory manager")
 
             # Speak the response if voice is enabled
-            if self.voice:
-                await self.voice.speak(output)
+            # The calling interface (GUI or CLI) is responsible for speaking the response
+            # if self.voice:
+            #     await self.voice.speak(output)
 
             return output
         except Exception as e:

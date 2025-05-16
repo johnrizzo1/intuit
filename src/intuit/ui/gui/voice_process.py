@@ -282,9 +282,30 @@ class VoiceProcessor:
             timeout = command.get('timeout', 5.0)
             text = await self._listen(timeout)
             
-            # The _listen method now handles sending the text to the GUI
-            # We don't need to do anything else here
+            # If text was recognized and process flag is set, send it for processing
+            if text and command.get('process', False):
+                # Send a message to the GUI that we're processing the text
+                self.output_queue.put({
+                    'type': 'processing',
+                    'content': text
+                })
+                
+                # The GUI will handle sending the text to the agent and returning the response
+                # We don't need to do anything else here
             
+        elif cmd_type == 'process_response':
+            # Process a response from the agent
+            response = command.get('response', '')
+            if response:
+                # Speak the response
+                await self._speak(response)
+                
+                # After speaking, automatically start listening again for a continuous conversation
+                # Send a message to the GUI to indicate we're ready to listen again
+                self.output_queue.put({
+                    'type': 'ready_to_listen'
+                })
+                
         elif cmd_type == 'stop':
             # Stop all processing
             self.running = False
@@ -469,7 +490,7 @@ class VoiceProcessManager:
             'text': text
         })
     
-    def listen(self, timeout: float = 5.0, process: bool = False) -> None:
+    def listen(self, timeout: float = 5.0, process: bool = True) -> None:
         """
         Send a listen command to the voice process.
         
@@ -485,6 +506,22 @@ class VoiceProcessManager:
             'type': 'listen',
             'timeout': timeout,
             'process': process
+        })
+        
+    def process_response(self, response: str) -> None:
+        """
+        Send an agent response to be spoken by the voice process.
+        
+        Args:
+            response: The agent's response text
+        """
+        if not self.running:
+            logger.warning("Voice process is not running")
+            return
+            
+        self.input_queue.put({
+            'type': 'process_response',
+            'response': response
         })
     
     def get_data(self) -> Optional[Dict[str, Any]]:

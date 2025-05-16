@@ -17,8 +17,8 @@ from PySide6.QtWidgets import (
     QLabel, QPushButton, QGraphicsDropShadowEffect
 )
 
-from . import puck_widget
-from puck_widget import HockeyPuckView
+# Import directly from standalone_gui instead of puck_widget
+from .standalone_gui import HockeyPuckView
 
 
 class IntuitGUI(QWidget):

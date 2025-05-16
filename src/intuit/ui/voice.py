@@ -110,11 +110,42 @@ class VoiceInterface:
     
     async def _speak(self, text: str) -> None:
         """Convert text to speech and play it."""
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as fp:
+        print(f"Assistant: {text}")
+        
+        # Create a temporary file for the speech audio
+        temp_dir = Path(tempfile.gettempdir()) / "intuit_voice"
+        temp_dir.mkdir(exist_ok=True)
+        temp_file = temp_dir / "speech.mp3"
+        
+        try:
+            # Convert text to speech
             tts = gTTS(text=text, lang='en')
-            tts.save(fp.name)
-            os.system(f"afplay {fp.name}")  # macOS specific
-            os.unlink(fp.name)
+            tts.save(str(temp_file))
+            
+            # Play the audio in a separate thread to avoid blocking
+            def play_audio():
+                try:
+                    import soundfile as sf
+                    import sounddevice as sd
+                    data, samplerate = sf.read(str(temp_file))
+                    sd.play(data, samplerate)
+                    sd.wait()  # Wait until audio is finished playing
+                except Exception as e:
+                    print(f"Error playing audio: {e}")
+            
+            # Start audio playback in a separate thread
+            audio_thread = threading.Thread(target=play_audio)
+            audio_thread.daemon = True
+            audio_thread.start()
+            
+            # Wait for audio to finish
+            audio_thread.join()
+            
+            # Clean up
+            if temp_file.exists():
+                temp_file.unlink()
+        except Exception as e:
+            print(f"Error in text-to-speech: {e}")
     
     async def run(self, timeout: float = 5.0) -> None:
         """
@@ -124,48 +155,57 @@ class VoiceInterface:
             timeout: Time to listen for in seconds for each iteration
         """
         try:
+            # Initial greeting
+            await self._speak("Hello! I'm Intuit, your voice assistant. How can I help you today?")
+            
             while self.running:
                 # Check if we should stop
                 if self.stop_event and self.stop_event.is_set():
                     break
                 
                 # Listen for input
+                print("\nListening for your command...")
                 query = await self._listen(timeout)
+                
                 if not query:
-                    # Check again if we should stop
-                    if self.stop_event and self.stop_event.is_set():
-                        break
+                    # If no speech was recognized, provide feedback and continue listening
+                    print("I didn't catch that. Please try again.")
+                    await self._speak("I didn't catch that. Please try again.")
                     continue
                 
                 # Handle exit command
                 if query.strip().lower() in ["exit", "quit", "stop"]:
+                    await self._speak("Goodbye!")
                     break
                 
                 # Process query
                 try:
-                    print("Processing...")
+                    print(f"Processing: '{query}'")
+                    
                     # Check if we should stop
                     if self.stop_event and self.stop_event.is_set():
                         break
-                        
+                    
+                    # Send the query to the agent and get the response
                     response = await self.agent.run(query)
                     
                     # Check if we should stop
                     if self.stop_event and self.stop_event.is_set():
                         break
-                        
-                    # Don't call self._speak if the agent already has voice output
-                    # This prevents the response from being spoken twice
-                    if not self.agent.voice:
-                        await self._speak(response)
+                    
+                    # Convert the response to speech
+                    await self._speak(response)
+                    
+                    # Brief pause before listening again
+                    await asyncio.sleep(0.5)
+                    
                 except Exception as e:
                     error_msg = f"Error: {str(e)}"
                     print(error_msg)
                     
                     # Check if we should stop
                     if not self.stop_event or not self.stop_event.is_set():
-                        await self._speak(error_msg)
-                    break  # Exit after error
+                        await self._speak(f"Sorry, I encountered an error: {str(e)}")
         except Exception as e:
             print(f"Fatal error: {str(e)}")
         finally:

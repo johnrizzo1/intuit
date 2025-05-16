@@ -999,51 +999,69 @@ def list_mcp_server_tools():
 
 @app.command()
 def gui(
+    model: str = typer.Option(os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini"), help="Model to use (can also be set via OPENAI_MODEL_NAME env var)"),
+    temperature: float = typer.Option(0.7, help="Model temperature"),
+    index: bool = typer.Option(False, "--index/--no-index", help="Enable/disable filesystem indexing"),
+    index_path: Optional[Path] = typer.Option(None, help="Path to index"),
+    enable_gmail: bool = typer.Option(False, help="Enable Gmail integration"),
+    enable_weather: bool = typer.Option(True, "--weather/--no-weather", help="Enable/disable weather information"),
     voice: bool = typer.Option(True, "--voice/--no-voice", help="Enable/disable voice interface"),
     voice_language: str = typer.Option("en", help="Language for voice output"),
     voice_slow: bool = typer.Option(False, "--slow/--no-slow", help="Speak slowly"),
+    openai_api_base: Optional[str] = typer.Option(None, help="Base URL for OpenAI API"),
+    openai_api_type: Optional[str] = typer.Option(None, help="Type of OpenAI API (openai/azure)"),
+    openai_api_version: Optional[str] = typer.Option(None, help="API version for Azure OpenAI"),
 ):
     """Start the Intuit assistant in GUI mode with the hockey puck interface."""
-    import subprocess
-    
-    # Get the path to the standalone GUI script
-    script_path = os.path.join(os.path.dirname(__file__), "ui", "gui", "standalone_gui.py")
-    
-    if not os.path.exists(script_path):
-        print(f"Error: GUI script not found at {script_path}")
-        sys.exit(1)
-    
-    # Create a configuration dictionary
-    config = {
-        "voice_enabled": voice,
-        "voice_language": voice_language,
-        "voice_slow": voice_slow
-    }
-    
-    # Create a temporary config file
-    config_path = os.path.join(tempfile.gettempdir(), "intuit_gui_config.json")
-    with open(config_path, "w") as f:
-        json.dump(config, f)
-    
-    print("Starting Intuit in GUI mode...")
-    if voice:
-        print("Voice interface enabled")
-    
     try:
-        # Run the standalone GUI script with the config file path as an argument
-        subprocess.run([sys.executable, script_path, config_path], check=True)
-        print("GUI closed")
-        
-        # Clean up the config file
+        # Check if PySide6 is installed
         try:
-            os.remove(config_path)
-        except:
-            pass
+            import PySide6
+        except ImportError:
+            print("Error: PySide6 is not installed. Please install it with: pip install PySide6")
+            sys.exit(1)
+        
+        # Create the agent
+        print("Initializing Intuit agent...")
+        agent = asyncio.run(create_agent(
+            model=model,
+            temperature=temperature,
+            index_filesystem=index,
+            filesystem_path=index_path,
+            enable_gmail=enable_gmail,
+            enable_weather=enable_weather,
+            use_voice=voice,
+            voice_language=voice_language,
+            voice_slow=voice_slow,
+            openai_api_base=openai_api_base,
+            openai_api_type=openai_api_type,
+            openai_api_version=openai_api_version,
+        ))
+        
+        # Create a configuration dictionary
+        config = {
+            "voice_enabled": voice,
+            "voice_language": voice_language,
+            "voice_slow": voice_slow
+        }
+        
+        # Import the agent GUI module
+        try:
+            from intuit.ui.gui.agent_gui import run_agent_gui
+            
+            # Run the agent GUI
+            print("Starting Intuit in GUI mode...")
+            if voice:
+                print("Voice interface enabled")
+                
+            run_agent_gui(agent=agent, config=config, block=True)
+            
+        except ImportError as e:
+            print(f"Error importing GUI module: {e}")
+            sys.exit(1)
+            
     except KeyboardInterrupt:
         print("\nExiting GUI mode...")
-    except subprocess.CalledProcessError as e:
-        print(f"Error running GUI: {e}", file=sys.stderr)
-        sys.exit(1)
     except Exception as e:
         print(f"Error starting GUI: {e}", file=sys.stderr)
         sys.exit(1)

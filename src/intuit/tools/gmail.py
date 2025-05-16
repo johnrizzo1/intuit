@@ -29,6 +29,8 @@ class GmailTool(BaseTool):
     _service: Optional[Any] = PrivateAttr(default=None)
     _credentials_file: str = PrivateAttr(default="credentials.json")
     _token_file: str = PrivateAttr(default="token.json")
+    _disabled: bool = PrivateAttr(default=False)
+    _disabled_reason: str = PrivateAttr(default="")
     
     def __init__(self, credentials_file: Optional[str] = None, token_file: Optional[str] = None, service: Optional[Any] = None, **data):
         super().__init__(**data)
@@ -54,7 +56,14 @@ class GmailTool(BaseTool):
             # If no valid credentials available, let the user log in
             if not creds or not creds.valid:
                 if creds and creds.expired and creds.refresh_token:
-                    creds.refresh(Request())
+                    try:
+                        creds.refresh(Request())
+                    except Exception as refresh_error:
+                        self._disabled = True
+                        self._disabled_reason = "Google credentials have expired and cannot be refreshed"
+                        logger.warning(self._disabled_reason)
+                        logger.debug("Refresh error details: %s", str(refresh_error))
+                        return
                 else:
                     if not os.path.exists(self._credentials_file):
                         raise FileNotFoundError(
@@ -74,7 +83,12 @@ class GmailTool(BaseTool):
             logger.info("Gmail service initialized successfully")
         except Exception as e:
             logger.error("Error initializing Gmail service: %s", str(e))
-            raise
+            if "invalid_grant" in str(e).lower() or "token has been expired" in str(e).lower():
+                self._disabled = True
+                self._disabled_reason = "Google credentials have expired and cannot be refreshed"
+                logger.warning(self._disabled_reason)
+            else:
+                raise
     
     async def _get_message_content(self, message_id: str) -> Dict[str, Any]:
         """Get the content of a specific message."""
@@ -107,6 +121,13 @@ class GmailTool(BaseTool):
         Returns:
             Dict containing operation results
         """
+        # Check if Gmail is disabled due to expired credentials
+        if self._disabled:
+            return {
+                "status": "warning",
+                "message": f"Gmail functionality is disabled: {self._disabled_reason}. Please refresh your Google credentials."
+            }
+            
         try:
             if not query:
                 return {
@@ -140,6 +161,10 @@ class GmailTool(BaseTool):
             error_message = str(e)
             if e.resp.status == 401:
                 error_message = "Authentication failed. Please check your credentials and try again."
+                # Disable Gmail functionality due to authentication failure
+                self._disabled = True
+                self._disabled_reason = "Google credentials have expired"
+                logger.warning(self._disabled_reason)
             elif e.resp.status == 403:
                 error_message = "Permission denied. Please ensure you have the necessary Gmail API permissions."
             logger.error("Gmail API error: %s", error_message)
