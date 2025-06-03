@@ -35,7 +35,7 @@ except ImportError:
     import sys
     # Add the parent directory to sys.path
     sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
-    from voice_process import VoiceProcessManager
+    from intuit.utils.voice_process import VoiceProcessManager
 
 
 

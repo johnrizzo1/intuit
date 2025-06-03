@@ -140,7 +140,11 @@ class GUIManager:
                 from .voice_process import VoiceProcessManager
                 
                 # Create and start the voice process manager
-                self.voice_manager = VoiceProcessManager()
+                # Create voice manager with adjusted sensitivity settings
+                self.voice_manager = VoiceProcessManager(
+                    volume_threshold=0.03,  # Slightly higher threshold for better noise rejection
+                    speech_window=0.25      # Shorter window for faster response
+                )
                 if self.voice_manager.start():
                     print("Voice functionality enabled")
                     
@@ -150,7 +154,8 @@ class GUIManager:
                     self.voice_thread.start()
                     
                     # Start with a greeting
-                    self.voice_manager.speak("Hello! I'm Intuit. How can I help you today?")
+                    # Use process_response instead of speak to ensure proper state handling
+                    self.voice_manager.process_response("Hello! I'm Intuit. How can I help you today?")
                     
                     # Start listening after the greeting
                     QThread.msleep(2000)  # Wait for greeting to finish
@@ -224,63 +229,126 @@ class GUIManager:
             self.running = False
             
     def process_voice_data(self):
-        """Process data from the voice process."""
-        if not self.voice_manager.is_running():
-            return
-            
-        # Get data from the voice process
-        data = self.voice_manager.get_data()
-        if data:
-            data_type = data.get('type')
-            
-            if data_type == 'metrics':
-                # Update the puck visualization with speech metrics
-                volume = data.get('volume', 0.0)
-                pitch = data.get('pitch', 0.5)
-                self.reactToSpeech(volume, pitch)
-            
-            elif data_type == 'text':
-                # Handle recognized text
-                content = data.get('content')
-                if content:
-                    print(f"Recognized: {content}")
-                    
-                    # Process the text with the agent
-                    if self.agent:
-                        print("Processing with Intuit agent...")
-                        threading.Thread(
-                            target=self._process_with_agent,
-                            args=(content,)
-                        ).start()
-            
-            elif data_type == 'speaking':
-                # Handle speaking state changes
-                state = data.get('state')
-                if state == 'start':
-                    print("AI is speaking...")
-                elif state == 'stop':
-                    print("AI finished speaking")
+        """
+        Process data from the voice process.
+        
+        Note: This method is called by the main event loop and should not block.
+        The actual processing of voice data is done in the _monitor_voice_process thread.
+        """
+        # This method is intentionally left empty as voice processing is now
+        # handled by the _monitor_voice_process thread.
+        pass
+    
+    def _monitor_voice_process(self):
+        """Monitor the voice process output queue and process messages."""
+        print("Starting voice process monitor thread")
+        while self.running:
+            if not self.voice_manager or not self.voice_manager.is_running():
+                time.sleep(0.1)
+                continue
                 
-            elif data_type == 'error':
-                # Handle errors
-                message = data.get('message', 'Unknown error')
-                print(f"Voice process error: {message}")
+            # Get data from the voice process
+            data = self.voice_manager.get_data()
+            if data:
+                data_type = data.get('type')
+                print(f"Received voice process message: {data_type}")
+                
+                if data_type == 'metrics':
+                    # Update the puck visualization with speech metrics
+                    volume = data.get('volume', 0.0)
+                    pitch = data.get('pitch', 0.5)
+                    if self.speech_processor:
+                        self.speech_processor.process_speech_data({
+                            'volume': volume,
+                            'pitch': pitch
+                        })
+                
+                elif data_type == 'text':
+                    # Handle recognized text
+                    content = data.get('content')
+                    if content:
+                        print(f"Recognized: {content}")
+                        
+                        # Process the text with the agent
+                        if self.agent:
+                            print("Processing with Intuit agent...")
+                            threading.Thread(
+                                target=self._process_with_agent,
+                                args=(content,)
+                            ).start()
+                
+                elif data_type == 'speaking':
+                    # Handle speaking state changes
+                    state = data.get('state')
+                    if state == 'start':
+                        print("AI is speaking...")
+                    elif state == 'stop':
+                        interrupted = data.get('interrupted', False)
+                        if interrupted:
+                            print("AI speech was interrupted by user")
+                        else:
+                            print("AI finished speaking")
+                        
+                        # Start listening again after speaking stops
+                        # This creates a continuous conversation loop
+                        print("Starting to listen again after speaking...")
+                        time.sleep(1)  # Short delay before listening again
+                        self.voice_manager.listen()
+                        print("Listen command sent")
+                    
+                elif data_type == 'ready_to_listen':
+                    # Voice process is ready to listen again
+                    print("Ready to listen...")
+                    self.voice_manager.listen()
+                
+                elif data_type == 'metrics':
+                    # Update the puck visualization with speech metrics
+                    volume = data.get('volume', 0.0)
+                    pitch = data.get('pitch', 0.5)
+                    is_speech = data.get('is_speech', False)
+                    
+                    # If user is speaking while AI is speaking, interrupt the AI
+                    # Use a higher threshold for interruption to avoid false positives
+                    if is_speech and self.voice_manager.is_speaking and volume > 0.4:
+                        print(f"User is speaking (volume: {volume:.2f}) - interrupting AI speech")
+                        # Stop the current speech
+                        if self.voice_manager.stop_speaking():
+                            print("Successfully sent interruption signal to voice process")
+                    
+                    # Process speech metrics for visualization
+                    if self.speech_processor:
+                        self.speech_processor.process_speech_data({
+                            'volume': volume,
+                            'pitch': pitch
+                        })
+                
+                elif data_type == 'error':
+                    # Handle errors
+                    message = data.get('message', 'Unknown error')
+                    print(f"Voice process error: {message}")
+            
+            # Short sleep to prevent CPU hogging
+            time.sleep(0.1)
     
     def _process_with_agent(self, text):
         """Process text with the agent and send the response to the voice process."""
         try:
+            # Import asyncio here to avoid circular imports
+            import asyncio
+            
             # Process the text with the agent
             response = asyncio.run(self.agent.run(text))
             
             # Send the response to the voice process
             if response and self.voice_manager:
                 print(f"Agent response: {response}")
-                self.voice_manager.speak(response)
+                # Use process_response instead of speak to trigger the ready_to_listen message
+                self.voice_manager.process_response(response)
                 
         except Exception as e:
             print(f"Error in agent processing: {e}")
             if self.voice_manager:
-                self.voice_manager.speak(f"Sorry, I encountered an error: {str(e)}")
+                self.voice_manager.process_response(f"Sorry, I encountered an error: {str(e)}")
 
 
 # Singleton instance for easy access

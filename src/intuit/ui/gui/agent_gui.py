@@ -26,7 +26,7 @@ except ImportError:
     # Add the parent directory to sys.path
     sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
     from standalone_gui import IntuitGUI, HockeyPuckView, HockeyPuckItem
-    from voice_process import VoiceProcessManager
+    from intuit.utils.voice_process import VoiceProcessManager
 
 
 class AgentGUI(IntuitGUI):
@@ -76,10 +76,10 @@ class AgentGUI(IntuitGUI):
             elif data_type == 'text':
                 # Handle recognized text
                 content = data.get('content', '')
-                # Handle recognized text - let the GUIManager handle processing with the agent
+                # Just log the recognized text - let the GUIManager handle processing with the agent
                 print(f"Recognized: {content}")
                 # The GUIManager's _monitor_voice_process will pick this up and send to the agent
-                    
+                
             elif data_type == 'speaking':
                 # Handle speaking state changes
                 state = data.get('state')
@@ -117,23 +117,15 @@ class AgentGUI(IntuitGUI):
                     # Disable voice to prevent further errors
                     self.voice_active = False
     
+    # This method is now handled by GUIManager in integration.py
+    # Keeping this as a stub for backward compatibility
     def _process_with_agent(self, text):
-        """Process text with the agent and send the response to the voice process."""
-        try:
-            # Process the text with the agent
-            response = asyncio.run(self.agent.run(text))
-            
-            # Send the response to the voice process
-            if response and self.voice_manager:
-                print(f"Agent response: {response}")
-                # Use speak instead of process_response to avoid duplicate responses
-                # The integration.py file is also calling process_response
-                self.voice_manager.speak(response)
-                
-        except Exception as e:
-            print(f"Error in agent processing: {e}")
-            if self.voice_manager:
-                self.voice_manager.speak(f"Sorry, I encountered an error: {str(e)}")
+        """
+        This method is deprecated. Agent processing is now handled by GUIManager.
+        This stub exists only for backward compatibility.
+        """
+        print("Warning: AgentGUI._process_with_agent is deprecated. Use GUIManager._process_with_agent instead.")
+        pass
 
 
 def run_agent_gui(agent=None, config=None, block=True):

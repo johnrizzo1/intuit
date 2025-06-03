@@ -13,8 +13,9 @@ import tempfile
 import os
 import sys
 import threading
+import collections
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Deque
 
 # Try to import optional dependencies
 try:
@@ -22,15 +23,132 @@ try:
     import numpy as np
     import sounddevice as sd
     from gtts import gTTS
+    import scipy.signal
     VOICE_DEPENDENCIES_AVAILABLE = True
 except ImportError:
     VOICE_DEPENDENCIES_AVAILABLE = False
     print("Warning: Some voice dependencies are not installed. Voice functionality will be limited.")
-    print("To install required packages, run: pip install SpeechRecognition gTTS sounddevice numpy soundfile")
+    print("To install required packages, run: pip install SpeechRecognition gTTS sounddevice numpy soundfile scipy")
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+class SpeechDetector:
+    """
+    Advanced speech detection with noise filtering capabilities.
+    
+    This class implements various techniques to differentiate between
+    actual speech and background noise.
+    """
+    
+    def __init__(self,
+                 sample_rate: int = 16000,
+                 volume_threshold: float = 0.02,
+                 speech_window: float = 0.3,
+                 frequency_range: tuple = (300, 3000)):
+        """
+        Initialize the speech detector.
+        
+        Args:
+            sample_rate: Audio sample rate in Hz
+            volume_threshold: RMS volume threshold for speech detection
+            speech_window: Minimum duration (in seconds) for a sound to be considered speech
+            frequency_range: Frequency range (in Hz) for bandpass filtering
+        """
+        self.sample_rate = sample_rate
+        self.volume_threshold = volume_threshold
+        self.speech_window_samples = int(speech_window * sample_rate)
+        self.frequency_range = frequency_range
+        
+        # Buffer for temporal analysis
+        self.audio_buffer: Deque[np.ndarray] = collections.deque(maxlen=50)  # ~0.5s at 16kHz with 160 samples per frame
+        self.volume_history: Deque[float] = collections.deque(maxlen=20)  # For volume averaging
+        
+        # Speech detection state
+        self.is_speech_detected = False
+        self.speech_start_time = 0
+        self.consecutive_speech_frames = 0
+        self.consecutive_silence_frames = 0
+        
+        # Design bandpass filter
+        nyquist = sample_rate / 2
+        low = frequency_range[0] / nyquist
+        high = frequency_range[1] / nyquist
+        self.b, self.a = scipy.signal.butter(4, [low, high], btype='band')
+    
+    def reset(self):
+        """Reset the detector state."""
+        self.audio_buffer.clear()
+        self.volume_history.clear()
+        self.is_speech_detected = False
+        self.consecutive_speech_frames = 0
+        self.consecutive_silence_frames = 0
+    
+    def process_audio(self, audio_data: np.ndarray) -> tuple:
+        """
+        Process audio data to detect speech.
+        
+        Args:
+            audio_data: Audio data as numpy array
+            
+        Returns:
+            Tuple of (is_speech, volume, pitch, filtered_audio)
+        """
+        # Apply bandpass filter to focus on speech frequencies
+        try:
+            filtered_audio = scipy.signal.lfilter(self.b, self.a, audio_data.flatten())
+            filtered_audio = filtered_audio.reshape(audio_data.shape)
+        except Exception as e:
+            logger.error(f"Error applying bandpass filter: {e}")
+            filtered_audio = audio_data
+        
+        # Calculate RMS volume
+        rms_volume = float(np.sqrt(np.mean(filtered_audio**2)))
+        
+        # Add to volume history for averaging
+        self.volume_history.append(rms_volume)
+        
+        # Calculate averaged volume
+        if len(self.volume_history) > 0:
+            avg_volume = sum(self.volume_history) / len(self.volume_history)
+        else:
+            avg_volume = rms_volume
+        
+        # Calculate approximate pitch using zero-crossing rate
+        zero_crossings = np.sum(np.abs(np.diff(np.signbit(filtered_audio).astype(int))))
+        frames = filtered_audio.shape[0]
+        pitch = min(1.0, zero_crossings / (frames * 0.1))
+        
+        # Add to audio buffer for temporal analysis
+        self.audio_buffer.append(filtered_audio)
+        
+        # Determine if this is speech based on volume threshold and temporal analysis
+        is_frame_speech = avg_volume > self.volume_threshold
+        
+        # Update consecutive frame counters
+        if is_frame_speech:
+            self.consecutive_speech_frames += 1
+            self.consecutive_silence_frames = 0
+        else:
+            self.consecutive_silence_frames += 1
+            # Only reset speech frames if we've had enough silence
+            if self.consecutive_silence_frames > 3:  # ~300ms of silence
+                self.consecutive_speech_frames = 0
+        
+        # Determine overall speech state with hysteresis
+        # Need more consecutive frames to start speech than to end it
+        if not self.is_speech_detected and self.consecutive_speech_frames > 5:  # ~500ms of speech
+            self.is_speech_detected = True
+            self.speech_start_time = time.time()
+        elif self.is_speech_detected and self.consecutive_silence_frames > 10:  # ~1s of silence
+            self.is_speech_detected = False
+        
+        # Scale volume for visualization
+        display_volume = min(1.0, avg_volume * 5)
+        
+        return (self.is_speech_detected, display_volume, pitch, filtered_audio)
 
 class VoiceProcessor:
     """
@@ -47,8 +165,8 @@ class VoiceProcessor:
             "Please install them using: pip install SpeechRecognition gTTS sounddevice numpy soundfile"
         )
     
-    def __init__(self, 
-                 input_queue: multiprocessing.Queue, 
+    def __init__(self,
+                 input_queue: multiprocessing.Queue,
                  output_queue: multiprocessing.Queue,
                  language: str = 'en',
                  slow: bool = False):
@@ -74,29 +192,44 @@ class VoiceProcessor:
         self.temp_dir = Path(tempfile.gettempdir()) / "intuit_voice"
         self.temp_dir.mkdir(exist_ok=True)
         
+        # Speech detection
+        self.speech_detector = SpeechDetector(
+            sample_rate=self.sample_rate,
+            volume_threshold=0.02,  # Adjust based on testing
+            speech_window=0.3,
+            frequency_range=(300, 3000)
+        )
+        
+        # Speaking state
+        self.is_speaking = False
+        self.current_audio_thread = None
+        self.should_interrupt = False
+        
     def _audio_callback(self, indata, frames, time, status):
         """Callback for audio input stream."""
         if status:
-            logger.info(f"Status: {status}")
+            logger.warning(f"Audio stream status issue: {status}")
         
-        # Calculate audio metrics
+        # Process audio with advanced speech detection
         if indata.size > 0:
-            # Calculate volume (RMS amplitude)
-            volume = float(np.sqrt(np.mean(indata**2)))
-            
-            # Calculate approximate pitch using zero-crossing rate
-            # This is a simple approximation, not accurate for actual pitch detection
-            zero_crossings = np.sum(np.abs(np.diff(np.signbit(indata).astype(int))))
-            pitch = min(1.0, zero_crossings / (frames * 0.1))
+            is_speech, volume, pitch, filtered_audio = self.speech_detector.process_audio(indata)
             
             # Send metrics to GUI
             self.output_queue.put({
                 'type': 'metrics',
-                'volume': min(1.0, volume * 5),  # Scale up for better visualization
-                'pitch': pitch
+                'volume': volume,
+                'pitch': pitch,
+                'is_speech': is_speech
             })
+            
+            # Check if we should interrupt current speech
+            # Note: Main interruption logic moved to _continuous_listen_thread for more reliable detection
+            if is_speech and self.is_speaking and volume > 0.4:  # Higher threshold for interruption
+                logger.info(f"User speech detected while speaking - volume: {volume:.2f}")
+                # Don't set should_interrupt here - let the continuous thread handle it
+                # This avoids race conditions in the callback
         
-        # Store audio data for recognition
+        # Store filtered audio data for recognition
         self.audio_queue.put(indata.copy())
     
     async def _listen(self, timeout: float = 5.0) -> Optional[str]:
@@ -218,22 +351,54 @@ class VoiceProcessor:
             
             # Define a function to play audio in a thread
             def play_audio_thread():
+                self.is_speaking = True
+                self.should_interrupt = False
+                
                 try:
                     if sys.platform == 'darwin':  # macOS
                         import subprocess
-                        subprocess.run(['afplay', str(temp_file)], check=True)
+                        # Use popen instead of run to be able to terminate the process
+                        process = subprocess.Popen(['afplay', str(temp_file)])
+                        
+                        # Check for interruption while playing
+                        while process.poll() is None:
+                            if self.should_interrupt:
+                                logger.warning("INTERRUPTING SPEECH PLAYBACK - User is speaking")
+                                process.terminate()
+                                process.wait()
+                                break
+                            time.sleep(0.05)  # Check more frequently for interruption
                     else:  # Use sounddevice for other platforms
                         import soundfile as sf
                         data, samplerate = sf.read(str(temp_file))
-                        sd.play(data, samplerate)
-                        sd.wait()  # Wait until audio is finished playing
+                        
+                        # Play with callback to check for interruption
+                        def callback(outdata, frames, time, status):
+                            if self.should_interrupt:
+                                raise sd.CallbackStop
+                            
+                            if len(data) > 0:
+                                outdata[:] = data[:frames]
+                                data = data[frames:]
+                            else:
+                                raise sd.CallbackStop
+                        
+                        with sd.OutputStream(
+                            samplerate=samplerate,
+                            channels=data.shape[1] if len(data.shape) > 1 else 1,
+                            callback=callback
+                        ):
+                            while not self.should_interrupt:
+                                time.sleep(0.1)
+                                
                 except Exception as e:
                     logger.error(f"Error playing audio: {e}")
                 finally:
                     # Notify GUI that speech is finished
                     self.output_queue.put({
                         'type': 'speaking',
-                        'state': 'stop'
+                        'state': 'stop',
+                        'interrupted': self.should_interrupt
                     })
                     
                     # Clean up
@@ -241,11 +406,15 @@ class VoiceProcessor:
                         temp_file.unlink()
                     except Exception as e:
                         logger.error(f"Error cleaning up temp file: {e}")
+                    
+                    self.is_speaking = False
+                    self.should_interrupt = False
             
             # Start audio playback in a separate thread
             audio_thread = threading.Thread(target=play_audio_thread)
             audio_thread.daemon = True  # Allow the thread to be terminated when the process exits
             audio_thread.start()
+            self.current_audio_thread = audio_thread
             
             # Don't wait for the thread to complete - continue processing commands
             # The thread will send the 'stop' message when done
@@ -310,9 +479,37 @@ class VoiceProcessor:
             # Stop all processing
             self.running = False
     
+    def stop_speaking(self):
+        """Stop the current speech playback."""
+        if self.is_speaking:
+            logger.warning("STOPPING CURRENT SPEECH - Interruption requested")
+            if self.current_audio_thread is not None and self.current_audio_thread.is_alive():
+                logger.info("Audio playback thread detected - sending termination signal")
+            else:
+                logger.warning("No active audio playback thread found at interruption attempt")
+            
+            # Force interruption
+            self.should_interrupt = True
+            
+            # Wait briefly to ensure the interruption takes effect
+            time.sleep(0.1)
+            
+            # Double-check that interruption was successful
+            if self.is_speaking:
+                logger.warning("Speech interruption may not have succeeded - forcing state reset")
+                self.is_speaking = False
+            
+            return True
+        return False
+    
     async def run(self) -> None:
         """Run the voice processor main loop."""
         self.running = True
+        
+        # Start a continuous listening thread
+        continuous_listen_thread = threading.Thread(target=self._continuous_listen_thread)
+        continuous_listen_thread.daemon = True
+        continuous_listen_thread.start()
         
         try:
             while self.running:
@@ -337,6 +534,28 @@ class VoiceProcessor:
             self.running = False
             logger.info("Voice processor stopped")
     
+    def _continuous_listen_thread(self):
+        """
+        Continuously monitor audio input in a separate thread.
+        This allows for speech detection even while the assistant is speaking.
+        """
+        logger.info("Starting continuous listening thread")
+        
+        try:
+            with sd.InputStream(
+                samplerate=self.sample_rate,
+                channels=self.channels,
+                dtype=self.dtype,
+                callback=self._audio_callback
+            ):
+                while self.running:
+                    logger.debug("Listening... waiting for input")
+                    time.sleep(0.1)
+        except Exception as e:
+            logger.error(f"Error in continuous listening thread: {e}")
+        finally:
+            logger.info("Stopping continuous listening thread. Cleanup completed.")
+    
     def __del__(self):
         """Clean up temporary files."""
         try:
@@ -347,10 +566,12 @@ class VoiceProcessor:
             logger.error(f"Error cleaning up voice files: {e}")
 
 
-def voice_process_main(input_queue: multiprocessing.Queue, 
+def voice_process_main(input_queue: multiprocessing.Queue,
                        output_queue: multiprocessing.Queue,
                        language: str = 'en',
-                       slow: bool = False) -> None:
+                       slow: bool = False,
+                       volume_threshold: float = 0.02,
+                       speech_window: float = 0.3) -> None:
     """
     Main function for the voice process.
     
@@ -370,8 +591,10 @@ def voice_process_main(input_queue: multiprocessing.Queue,
             })
             return
             
-        # Initialize the voice processor
+        # Initialize the voice processor with sensitivity settings
         processor = VoiceProcessor(input_queue, output_queue, language, slow)
+        processor.speech_detector.volume_threshold = volume_threshold
+        processor.speech_detector.speech_window = speech_window * processor.sample_rate
         
         # Run the voice processor
         asyncio.run(processor.run())
@@ -391,20 +614,26 @@ class VoiceProcessManager:
     and communicating with it via queues.
     """
     
-    def __init__(self, language: str = 'en', slow: bool = False):
+    def __init__(self, language: str = 'en', slow: bool = False,
+                 volume_threshold: float = 0.02, speech_window: float = 0.3):
         """
         Initialize the voice process manager.
         
         Args:
             language: Language code for speech synthesis
             slow: Whether to speak slowly
+            volume_threshold: RMS volume threshold for speech detection
+            speech_window: Minimum duration (in seconds) for a sound to be considered speech
         """
         self.language = language
         self.slow = slow
+        self.volume_threshold = volume_threshold
+        self.speech_window = speech_window
         self.input_queue = multiprocessing.Queue()
         self.output_queue = multiprocessing.Queue()
         self.process = None
         self.running = False
+        self.is_speaking = False
     
     def start(self) -> bool:
         """
@@ -427,6 +656,10 @@ class VoiceProcessManager:
             self.process = multiprocessing.Process(
                 target=voice_process_main,
                 args=(self.input_queue, self.output_queue, self.language, self.slow),
+                kwargs={
+                    'volume_threshold': self.volume_threshold,
+                    'speech_window': self.speech_window
+                },
                 daemon=True
             )
             self.process.start()
@@ -485,10 +718,27 @@ class VoiceProcessManager:
             logger.warning("Voice process is not running")
             return
         
+        self.is_speaking = True
         self.input_queue.put({
             'type': 'speak',
             'text': text
         })
+    
+    def stop_speaking(self) -> bool:
+        """
+        Stop the current speech playback.
+        
+        Returns:
+            True if speech was stopped, False otherwise
+        """
+        if not self.running or not self.is_speaking:
+            return False
+        
+        self.input_queue.put({
+            'type': 'stop_speaking'
+        })
+        self.is_speaking = False
+        return True
     
     def listen(self, timeout: float = 5.0, process: bool = True) -> None:
         """
@@ -518,7 +768,8 @@ class VoiceProcessManager:
         if not self.running:
             logger.warning("Voice process is not running")
             return
-            
+        
+        self.is_speaking = True
         self.input_queue.put({
             'type': 'process_response',
             'response': response
