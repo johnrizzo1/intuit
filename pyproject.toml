@@ -1,102 +1,22 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "intuit"
-version = "0.1.0"
-description = "A flexible personal assistant with voice interface"
+version = "1.0.0"
+description = "Intuit AI Agents Python package."
 authors = [
-    {name = "Your Name", email = "your.email@example.com"},
+    { name = "John Rizzo", email = "johnrizzo1@gmail.com" }
 ]
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "openai>=1.12.0",
-    "pydantic>=2.6.1",
-    "typer>=0.9.0",
-    "rich>=13.7.0",
-    "chromadb>=0.4.22",
-    "google-api-python-client>=2.118.0",
-    "google-auth-oauthlib>=1.2.0",
-    "beautifulsoup4>=4.12.0",
-    "textual>=0.40.0",
-    "aiohttp>=3.11.18",
-    "speechrecognition>=3.10.1",
-    "gtts>=2.5.1",
-    "numpy>=1.24.0",
-    "sounddevice>=0.4.6",
-    "openai-whisper>=20231117",
-    "prompt-toolkit>=3.0.0",
-    "langchain-openai>=0.0.5",
-    "python-dotenv>=1.0.0",
-    "pypdf2>=3.0.0",
-    "soundfile>=0.13.1",
-    "pytest>=8.3.5",
-    "pyperclip>=1.8.2", # Add pyperclip dependency
-    "fastmcp>=2.3.0", # For MCP Server
-    "mcp-client>=0.2.0",
-    "mcp>=1.8.0",
-    "pyautogui>=0.9.54",
-    "pillow>=11.2.1",
-    "langmem>=0.0.25",
-    "pytest-asyncio>=0.26.0",
-    "yaspin>=3.1.0",
-    "pyside6>=6.9.0",
-    "langchain-community>=0.3.24",
-    "langchain>=0.3.25",
+    # Add your runtime dependencies here, e.g. "requests>=2.0"
 ]
-
-[project.scripts]
-intuit = "intuit.main:main"
 
 [project.optional-dependencies]
-dev = [
-    "pytest>=7.4.0",
-    "pytest-asyncio>=0.23.0",
-    "pytest-cov>=4.1.0",
-    "black>=24.1.0",
-    "ruff>=0.2.0",
-    "mypy>=1.8.0",
+test = [
+    "pytest",
+    "pytest-asyncio"
 ]
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/intuit"]
-
-[tool.hatch.build.targets.sdist]
-include = [
-    "src/intuit",
-]
-
-[tool.hatch.build.targets.wheel.shared-data]
-"src/intuit" = "intuit"
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-asyncio_mode = "auto"
-addopts = "--cov=src/intuit --cov-report=term-missing"
-
-[tool.ruff]
-line-length = 88
-target-version = "py312"
-select = ["E", "F", "B", "I", "N", "UP", "PL", "RUF"]
-ignore = ["E501"]
-
-[tool.black]
-line-length = 88
-target-version = ["py312"]
-
-[tool.mypy]
-python_version = "3.12"
-strict = true
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = false
-disallow_incomplete_defs = false
-check_untyped_defs = true
-disallow_untyped_decorators = true
-no_implicit_optional = true
-warn_redundant_casts = true
-warn_unused_ignores = true
-warn_no_return = true
-warn_unreachable = true 
