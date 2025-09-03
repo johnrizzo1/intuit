@@ -1,3 +1,0 @@
-This is a test file about JavaScript development
-
-JavaScript development is a great language to teach with since it is available on almost every computer.

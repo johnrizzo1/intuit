@@ -20,12 +20,13 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, script_dir)
 
 # Import the GUI modules directly with absolute paths
-import src.intuit.ui.gui.main_gui as main_gui
-import src.intuit.ui.gui.integration as integration
+import intuit.ui.gui.main_gui as main_gui
+import intuit.ui.gui.integration as integration
 
 IntuitGUI = main_gui.IntuitGUI
 start_gui = integration.start_gui
 stop_gui = integration.stop_gui
+
 
 def main():
     """Run the GUI."""
@@ -35,7 +36,7 @@ def main():
         app = QApplication(sys.argv)
         window = IntuitGUI()
         window.show()
-        
+
         # Print instructions
         print("Hockey Puck GUI")
         print("---------------")
@@ -44,7 +45,7 @@ def main():
         print("- Press Space to toggle between pulse and ripple effects")
         print("- Press T to start/stop test animation")
         print("- Press Escape to close")
-        
+
         # Run the application
         sys.exit(app.exec())
     except KeyboardInterrupt:
@@ -52,6 +53,7 @@ def main():
     except Exception as e:
         print(f"Error starting GUI: {e}", file=sys.stderr)
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

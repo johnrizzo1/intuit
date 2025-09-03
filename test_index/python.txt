@@ -1,2 +1,0 @@
-This is a test file about Python programming.
-Python is a programming language but also a type of snake.

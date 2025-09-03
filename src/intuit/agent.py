@@ -2129,7 +2129,7 @@ class MCPToolWrapper(BaseTool):
     client: Optional[MCPClient] = None
     tool_name_on_server: str = ""
     tool_info: Dict[str, Any] = {}
-    schema: Dict[str, Any] = {}
+    mcp_schema: Dict[str, Any] = {}
     args_schema_pydantic: Optional[type] = None
 
     def __init__(
@@ -2158,10 +2158,12 @@ class MCPToolWrapper(BaseTool):
         # The schema from MCP server is typically JSON schema.
         # Langchain's StructuredTool can often work with Pydantic models for args_schema.
         # We need to convert or ensure compatibility.
-        self.schema = tool_info.get(
+        self.mcp_schema = tool_info.get(
             "parameters", {"type": "object", "properties": {}}
         )  # JSON schema for parameters
-        self.args_schema_pydantic = self._create_pydantic_schema_from_json(self.schema)
+        self.args_schema_pydantic = self._create_pydantic_schema_from_json(
+            self.mcp_schema
+        )
 
     def _create_pydantic_schema_from_json(
         self, json_schema: Dict[str, Any]

@@ -12,11 +12,50 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    # Add your runtime dependencies here, e.g. "requests>=2.0"
+    "typer>=0.9.0",
+    "python-dotenv",
+    "aiohttp",
+    "beautifulsoup4",
+    "chromadb",
+    "google-api-python-client",
+    "google-auth-oauthlib",
+    "gtts",
+    "langchain",
+    "langchain-community",
+    "langchain-openai",
+    "langgraph",
+    "numpy",
+    "openai",
+    "openai-whisper",
+    "pillow",
+    "prompt-toolkit",
+    "pydantic",
+    "pypdf2",
+    "pyperclip",
+    "pyside6",
+    "pyautogui",
+    "requests",
+    "rich",
+    "soundfile",
+    "speechrecognition",
+    "textual",
+    "yaspin",
+    "fastmcp>=2.3.0",
+    "langmem>=0.0.29",
+    "mcp-client>=0.0.0",
+    "mcp>=1.8.0",
 ]
+
+[project.scripts]
+intuit = "intuit.main:main"
 
 [project.optional-dependencies]
 test = [
     "pytest",
     "pytest-asyncio"
 ]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["intuit*"]
+exclude = ["tests*", "docs*", "bak*"]

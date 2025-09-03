@@ -98,6 +98,7 @@ uv run intuit mcp list-tools
 ```
 
 The MCP server exposes the following tools:
+
 - Calendar tools (add, list, search, delete)
 - Notes tools (add, list, search, delete)
 - Reminders tools (add, list, search, delete)
@@ -129,7 +130,7 @@ List the tools available from connected MCP servers:
 uv run intuit mcp list-mcp-tools
 ```
 
-Once connected, you can use the tools from the external MCP server in your conversations with Intuit. The tools will be prefixed with "mcp_" to distinguish them from local tools.
+Once connected, you can use the tools from the external MCP server in your conversations with Intuit. The tools will be prefixed with "mcp\_" to distinguish them from local tools.
 
 #### MCP Architecture
 
@@ -424,13 +425,13 @@ from intuit.tools.basetool import BaseTool
 async def main():
     # Create an agent with default tools
     agent = Agent(tools=[])
-    
+
     # Connect to an MCP server
     await agent.connect_to_mcp_server("http://localhost:8000")
-    
+
     # List available MCP tools
     print(agent.list_mcp_tools())
-    
+
     # Use an MCP tool
     result = await agent.process_input("Take a screenshot of my screen")
     print(result)
@@ -453,11 +454,11 @@ import pyautogui
 def my_custom_tool(param1: str, param2: int = 10) -> str:
     """
     A custom tool that does something useful.
-    
+
     Args:
         param1: The first parameter
         param2: The second parameter (default: 10)
-        
+
     Returns:
         Result of the operation
     """
@@ -473,7 +474,7 @@ intuit/
 ├── devenv.nix           # Nix development environment
 ├── pyproject.toml       # Python project configuration
 ├── README.md           # Project documentation
-├── src/
+├── src/                 # Source code (src layout for proper packaging)
 │   └── intuit/
 │       ├── __init__.py
 │       ├── main.py     # Typer CLI entry point and tool command definitions
@@ -486,26 +487,48 @@ intuit/
 │       │   └── tools.py  # Memory tools
 │       ├── tools/
 │       │   ├── __init__.py
-│       │   ├── base.py
+│       │   ├── basetool.py
 │       │   ├── web_search.py
 │       │   ├── gmail.py
 │       │   ├── weather.py
 │       │   ├── filesystem.py
 │       │   ├── calendar.py # Local Calendar Tool
 │       │   ├── notes.py    # Local Notes Tool
-│       │   └── reminders.py # Local Reminders Tool
+│       │   ├── reminders.py # Local Reminders Tool
+│       │   └── hackernews.py # HackerNews Tool
 │       ├── ui/
 │       │   ├── __init__.py
-│       │   ├── cli.py      # (Older Argparse CLI - potentially deprecated)
-│       │   └── voice.py
+│       │   ├── cli.py      # CLI interface
+│       │   ├── voice.py    # Voice interface
+│       │   └── gui/        # GUI components
+│       │       ├── __init__.py
+│       │       ├── main_gui.py
+│       │       ├── standalone_gui.py
+│       │       └── ...     # Other GUI files
+│       ├── utils/          # Utility modules
+│       │   ├── __init__.py
+│       │   ├── progress.py
+│       │   ├── spinner.py
+│       │   └── voice_process.py
 │       └── vector_store/
 │           ├── __init__.py
+│           ├── document.py
 │           └── indexer.py
 ├── tests/               # Unit tests
-│   └── tools/
-│       ├── test_calendar.py # Calendar Tool tests
-│       ├── test_notes.py    # Notes Tool tests
-│       └── test_reminders.py # Reminders Tool tests
+│   ├── conftest.py
+│   ├── tools/
+│   │   ├── test_calendar.py # Calendar Tool tests
+│   │   ├── test_notes.py    # Notes Tool tests
+│   │   ├── test_reminders.py # Reminders Tool tests
+│   │   └── ...         # Other tool tests
+│   ├── memory/          # Memory system tests
+│   ├── ui/              # UI tests
+│   └── vector_store/    # Vector store tests
+├── scripts/             # Utility scripts
+├── examples/            # Example code and demos
+├── docs/                # Documentation
+├── memory-bank/         # Memory bank for project context
+├── bak/                 # Backup files
 └── data/                # Directory for local tool data (created on first use)
     ├── calendar/        # Calendar event JSON files
     ├── notes/           # Note JSON files
