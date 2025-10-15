@@ -4,7 +4,7 @@ This document tracks the current work focus, recent changes, next steps, active 
 
 ## Current Work Focus
 
-Refining and expanding the Model Context Protocol (MCP) integration that enables Intuit to function as both an MCP client and server.
+Enhancing the user experience with a rich Terminal User Interface (TUI) for voice mode, providing real-time conversation display, audio monitoring, and status indicators.
 
 ## Recent Changes
 
@@ -18,15 +18,26 @@ Refining and expanding the Model Context Protocol (MCP) integration that enables
 - Updated the agent to support MCP tools.
 - Added CLI commands for MCP server management.
 - Created a restart script for the MCP server.
+- Implemented Voice TUI using Textual framework with:
+  - Real-time conversation display with scrolling
+  - Audio input level meter with color-coded visualization
+  - Status bar showing current activity (Listening, Processing, Speaking)
+  - Voice quality metrics (latency, confidence, duration)
+  - Keyboard shortcuts for clearing history and quitting
+- Integrated Voice TUI with existing voice interface
+- Added `--tui/--no-tui` flag to voice command (TUI enabled by default)
+- Created comprehensive documentation for Voice TUI feature
+- Updated README with Voice TUI information
 
 ## Next Steps
 
 - Expand the tool/plugin ecosystem beyond the current set.
 - Enhance vector database capabilities further (e.g., incremental indexing, better metadata extraction).
 - Optimize performance and latency.
-- Write unit tests for MCP server and client functionality.
-- Document MCP integration in README.md.
-- Create usage examples for MCP tools.
+- Add voice activity detection for automatic start/stop
+- Implement customizable TUI themes
+- Add conversation history export feature
+- Consider adding noise cancellation indicators
 
 ## Active Decisions and Considerations
 
@@ -44,6 +55,10 @@ Refining and expanding the Model Context Protocol (MCP) integration that enables
 - Unified backend logic for CLI and voice commands.
 - MCP protocol for tool integration.
 - Consistent error handling and user feedback.
+- Rich TUI for enhanced user experience in voice mode.
+- Textual framework for building terminal user interfaces.
+- Real-time audio monitoring for visual feedback.
+- **CRITICAL**: All commands must be run via `devenv shell -- <command>` to ensure proper environment setup.
 
 ## Learnings and Project Insights
 
@@ -77,3 +92,8 @@ Refining and expanding the Model Context Protocol (MCP) integration that enables
 - Comprehensive logging is essential for debugging complex systems, especially when multiple components interact.
 - Adding caller information to logs helps track the flow of execution through the system.
 - Logging both the entry and exit points of methods provides visibility into the system's behavior.
+- Textual provides an excellent framework for building rich TUIs with reactive components.
+- Real-time audio monitoring can be achieved using sounddevice with async callbacks.
+- Visual feedback (like audio meters) significantly improves the voice interaction experience.
+- The TUI should be optional to support different use cases and environments.
+- Using devenv/Nix for environment management requires running all commands via `devenv shell -- <command>`.

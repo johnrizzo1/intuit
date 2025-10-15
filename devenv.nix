@@ -4,7 +4,7 @@
   packages = with pkgs; [ 
     git
     portaudio
-    (python312.withPackages (ps: with ps; [
+    (python3.withPackages (ps: with ps; [
       openai
       pydantic
       typer

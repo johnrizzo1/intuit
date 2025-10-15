@@ -10,7 +10,7 @@ Intuit is a flexible, agentic personal assistant that can be accessed via CLI, v
 - Weather information
 - Local Productivity Tools: Calendar, Notes, and Reminders
 - Persistent memory storage with ChromaDB
-- Voice interface with real-time processing
+- Voice interface with real-time processing and rich TUI
 - CLI interface with rich text formatting
 - Multi-process support for improved latency
 - Full-duplex communication
@@ -73,11 +73,25 @@ uv run intuit chat "What's the weather like in London?"
 
 ### Voice Mode
 
-Start the agent in real-time voice interaction mode:
+Start the agent in real-time voice interaction mode with a rich TUI:
 
 ```bash
 uv run intuit voice
 ```
+
+The voice mode includes a beautiful Terminal User Interface (TUI) that displays:
+- Real-time conversation history with scrolling
+- Audio input level meter
+- Status indicators (Listening, Processing, Speaking)
+- Voice quality metrics (latency, confidence, duration)
+
+To disable the TUI and use basic voice mode:
+
+```bash
+uv run intuit voice --no-tui
+```
+
+For more details about the Voice TUI, see [Voice TUI Documentation](docs/voice_tui.md).
 
 ### MCP Server Mode
 
@@ -339,8 +353,9 @@ intuit/
 │       │   └── reminders.py # Local Reminders Tool
 │       ├── ui/
 │       │   ├── __init__.py
-│       │   ├── cli.py      # (Older Argparse CLI - potentially deprecated)
-│       │   └── voice.py
+│       │   ├── cli.py      # CLI interface
+│       │   ├── voice.py    # Basic voice interface
+│       │   └── voice_tui.py # Rich TUI for voice mode
 │       └── vector_store/
 │           ├── __init__.py
 │           └── indexer.py

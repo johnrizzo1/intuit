@@ -21,6 +21,15 @@ This document tracks what works, what's left to build, the current status, known
 - Agent updated to support MCP tools.
 - CLI commands added for MCP server management (start, list tools, status).
 - Restart script created for the MCP server.
+- Voice TUI implemented with Textual framework featuring:
+  - Real-time conversation display with auto-scrolling
+  - Audio input level meter with color-coded visualization
+  - Status indicators (Listening, Processing, Speaking, Idle)
+  - Voice quality metrics display (latency, confidence, duration)
+  - Keyboard shortcuts (q to quit, c to clear history)
+- Voice TUI integrated with existing voice interface
+- Documentation created for Voice TUI feature
+- README updated with Voice TUI information and usage examples
 
 ## What's Left to Build
 
@@ -36,6 +45,8 @@ This document tracks what works, what's left to build, the current status, known
 - MCP integration has been successfully implemented, enabling both client and server functionality.
 - The system can now expose its tools to external AI agents and connect to external MCP servers.
 - The RAG pipeline has been fixed and is now functioning properly, enabling semantic search of indexed files.
+- Voice TUI is fully implemented and provides a rich, interactive interface for voice conversations.
+- The TUI is enabled by default in voice mode but can be disabled with `--no-tui` flag.
 
 ## Known Issues
 
@@ -64,3 +75,6 @@ This document tracks what works, what's left to build, the current status, known
 - Used the MCP protocol as a standardized way for AI models to interact with external tools and resources.
 - Implemented a screenshot tool as a proof of concept for MCP integration.
 - Added robust error handling and fallback mechanisms for MCP tool execution.
+- Enhanced voice mode with a rich TUI using Textual framework for better user experience.
+- Made TUI optional to support different environments and use cases.
+- Documented the importance of using `devenv shell` for running commands in the Nix environment.
