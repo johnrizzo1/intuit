@@ -265,6 +265,7 @@ class VoiceTUI(App):
         self.text_input: Optional[TextArea] = None
         self.running = True
         self.listening_mode = True  # Toggle between voice and text input
+        self.voice_loop_active = True  # Control voice loop
         
         # Audio monitoring
         self.audio_queue = asyncio.Queue()
@@ -327,6 +328,18 @@ class VoiceTUI(App):
         if event.button.id == "send-button":
             self._send_text_message()
     
+    async def on_key(self, event) -> None:
+        """Handle key press events."""
+        # Check if we're in the text input and Enter is pressed
+        if (self.text_input and
+                self.text_input.has_focus and
+                event.key == "enter" and
+                not event.shift):
+            # Prevent default behavior
+            event.prevent_default()
+            # Send the message
+            self._send_text_message()
+    
     def _send_text_message(self) -> None:
         """Send text message from input area."""
         if not self.text_input:
@@ -345,6 +358,9 @@ class VoiceTUI(App):
     async def _process_text_input(self, text: str) -> None:
         """Process text input from the user."""
         try:
+            # Temporarily pause voice loop to prevent double processing
+            self.voice_loop_active = False
+            
             # Add user message
             if self.conversation:
                 self.conversation.add_message("You", text)
@@ -389,12 +405,18 @@ class VoiceTUI(App):
                 
                 await voice_interface._speak(response)
                 
+                # Add delay after speaking
+                await asyncio.sleep(0.5)
+                
                 if self.status_bar:
                     self.status_bar.speaking = False
                     self.status_bar.status = "Ready - Voice mode active"
             else:
                 if self.status_bar:
                     self.status_bar.status = "Ready - Text mode active"
+            
+            # Resume voice loop
+            self.voice_loop_active = True
         
         except Exception as e:
             error_msg = f"Error: {str(e)}"
@@ -458,10 +480,23 @@ class VoiceTUI(App):
             
             while self.running:
                 try:
+                    # Skip if voice loop is paused (text input active)
+                    if not self.voice_loop_active:
+                        await asyncio.sleep(0.5)
+                        continue
+                    
                     # Only listen if not currently speaking
                     if self.status_bar and self.status_bar.speaking:
                         await asyncio.sleep(0.5)
                         continue
+                    
+                    # Clear any residual audio from the queue before listening
+                    # This prevents the assistant's speech from being picked up
+                    while not voice_interface.audio_queue.empty():
+                        try:
+                            voice_interface.audio_queue.get_nowait()
+                        except Exception:
+                            break
                     
                     # Update status
                     if self.status_bar:
