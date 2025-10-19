@@ -62,12 +62,33 @@ class HackerNewsTool(BaseTool):
         
         return stories
     
+    def _format_for_voice(self, stories: List[Dict[str, Any]]) -> str:
+        """
+        Format stories for voice output - titles only, no URLs or metadata.
+        
+        Args:
+            stories: List of story dictionaries
+            
+        Returns:
+            Formatted string with just story titles
+        """
+        if not stories:
+            return "No stories found."
+        
+        # Create a simple numbered list of titles
+        formatted = []
+        for i, story in enumerate(stories, 1):
+            title = story.get('title', 'No title')
+            formatted.append(f"{i}. {title}")
+        
+        return "\n".join(formatted)
+    
     async def _arun(
         self,
         action: str = "top",
         limit: int = 10,
         item_id: Optional[int] = None
-    ) -> Dict[str, Any]:
+    ) -> str:
         """
         Fetch content from Hacker News.
         
@@ -77,25 +98,23 @@ class HackerNewsTool(BaseTool):
             item_id: ID of a specific item to fetch (only used when action is "item")
             
         Returns:
-            Dict containing the requested Hacker News content
+            Formatted string with story titles (voice-friendly)
         """
         try:
             if action == "item" and item_id:
                 # Get a specific item
                 item = await self._get_item(item_id)
-                result = {
-                    'action': 'item',
-                    'item': item
-                }
+                title = item.get('title', 'No title')
+                return f"Story: {title}"
             else:
                 # Get stories based on type
                 story_type = action if action in ["top", "new", "best"] else "top"
                 stories = await self._get_stories(story_type, limit)
-                result = {
-                    'action': story_type,
-                    'stories': stories,
-                    'count': len(stories)
-                }
+                
+                # Format for voice output
+                header = f"Here are the {story_type} {len(stories)} stories:\n\n"
+                formatted_stories = self._format_for_voice(stories)
+                result = header + formatted_stories
             
             # Close the client session after we're done
             if self._client and not self._client.closed:
@@ -106,7 +125,7 @@ class HackerNewsTool(BaseTool):
             # Ensure client is closed even if there's an error
             if self._client and not self._client.closed:
                 await self._client.close()
-            return {'error': str(e)}
+            return f"Error fetching Hacker News: {str(e)}"
     
     async def __aenter__(self):
         """Async context manager entry."""
@@ -119,18 +138,18 @@ class HackerNewsTool(BaseTool):
             await self._client.close()
 
     # Convenience methods for direct use
-    async def get_top_stories(self, limit: int = 10) -> Dict[str, Any]:
-        """Get top stories from Hacker News."""
+    async def get_top_stories(self, limit: int = 10) -> str:
+        """Get top stories from Hacker News (voice-friendly format)."""
         return await self._arun(action="top", limit=limit)
     
-    async def get_new_stories(self, limit: int = 10) -> Dict[str, Any]:
-        """Get new stories from Hacker News."""
+    async def get_new_stories(self, limit: int = 10) -> str:
+        """Get new stories from Hacker News (voice-friendly format)."""
         return await self._arun(action="new", limit=limit)
     
-    async def get_best_stories(self, limit: int = 10) -> Dict[str, Any]:
-        """Get best stories from Hacker News."""
+    async def get_best_stories(self, limit: int = 10) -> str:
+        """Get best stories from Hacker News (voice-friendly format)."""
         return await self._arun(action="best", limit=limit)
     
-    async def get_story(self, item_id: int) -> Dict[str, Any]:
-        """Get a specific story by ID."""
+    async def get_story(self, item_id: int) -> str:
+        """Get a specific story by ID (voice-friendly format)."""
         return await self._arun(action="item", item_id=item_id)

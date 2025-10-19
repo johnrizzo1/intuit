@@ -6,19 +6,26 @@ import speech_recognition as sr
 from gtts import gTTS
 import tempfile
 import os
+import logging
 from typing import Optional
-from pathlib import Path
 import sounddevice as sd
 import numpy as np
 import queue
-import threading
 
 from ..agent import Agent
+from ..logging_config import PipelineLogger, get_pipeline_logger
+
+logger = logging.getLogger(__name__)
+
 
 class VoiceInterface:
     """Voice interface for Intuit."""
     
-    def __init__(self, agent: Agent):
+    def __init__(
+        self,
+        agent: Agent,
+        pipeline_logger: Optional[PipelineLogger] = None
+    ):
         """Initialize the voice interface."""
         self.agent = agent
         self.recognizer = sr.Recognizer()
@@ -27,16 +34,19 @@ class VoiceInterface:
         self.sample_rate = 16000
         self.channels = 1
         self.dtype = np.float32
+        self.pipeline_logger = pipeline_logger or get_pipeline_logger()
     
     def _audio_callback(self, indata, frames, time, status):
         """Callback for audio input stream."""
         if status:
-            print(f"Status: {status}")
+            logger.warning(f"Audio status: {status}")
         self.audio_queue.put(indata.copy())
     
     async def _listen(self) -> Optional[str]:
         """Listen for user input."""
-        print("Listening...")
+        session_id = self.pipeline_logger.start_session()
+        self.pipeline_logger.log_stt_start(session_id)
+        logger.info("Listening for voice input...")
         
         # Start recording
         with sd.InputStream(
@@ -54,7 +64,8 @@ class VoiceInterface:
             audio_data.append(self.audio_queue.get())
         
         if not audio_data:
-            print("No audio recorded")
+            logger.warning("No audio recorded")
+            self.pipeline_logger.log_stt_error("No audio data", session_id)
             return None
         
         # Convert to format expected by speech_recognition
@@ -70,25 +81,62 @@ class VoiceInterface:
         
         try:
             text = self.recognizer.recognize_google(audio)
-            print(f"You said: {text}")
+            logger.info(f"Transcribed: {text}")
+            self.pipeline_logger.log_stt_complete(text, session_id)
             return text
         except sr.UnknownValueError:
-            print("Could not understand audio")
+            logger.warning("Could not understand audio")
+            self.pipeline_logger.log_stt_error(
+                "Speech not recognized", session_id
+            )
             return None
         except sr.RequestError as e:
-            print(f"Error with speech recognition service: {e}")
+            error_msg = f"Speech recognition service error: {e}"
+            logger.error(error_msg)
+            self.pipeline_logger.log_stt_error(error_msg, session_id)
             return None
     
-    async def _speak(self, text: str) -> None:
+    async def _speak(
+        self, text: str, session_id: Optional[str] = None
+    ) -> None:
         """Convert text to speech and play it."""
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as fp:
+        if session_id:
+            self.pipeline_logger.log_tts_start(text, session_id)
+        logger.info(f"Speaking: {text[:50]}...")
+        
+        try:
+            with tempfile.NamedTemporaryFile(
+                delete=False, suffix='.mp3'
+            ) as fp:
+                temp_file = fp.name
+            
+            # Generate TTS audio file
             tts = gTTS(text=text, lang='en')
-            tts.save(fp.name)
-            os.system(f"afplay {fp.name}")  # macOS specific
-            os.unlink(fp.name)
+            tts.save(temp_file)
+            
+            # Play audio asynchronously (non-blocking)
+            process = await asyncio.create_subprocess_exec(
+                'afplay', temp_file,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL
+            )
+            await process.wait()
+            
+            # Clean up temp file
+            os.unlink(temp_file)
+            
+            if session_id:
+                self.pipeline_logger.log_tts_complete(session_id)
+            logger.info("Speech playback complete")
+        except Exception as e:
+            error_msg = f"TTS error: {e}"
+            logger.error(error_msg)
+            if session_id:
+                self.pipeline_logger.log_tts_error(error_msg, session_id)
     
     async def run(self) -> None:
         """Run the voice interface."""
+        logger.info("Starting voice interface")
         try:
             while self.running:
                 # Listen for input
@@ -96,42 +144,59 @@ class VoiceInterface:
                 if not query:
                     continue
                 
+                session_id = self.pipeline_logger.current_session_id
+                
                 # Handle exit command
                 if query.strip().lower() in ["exit", "quit", "stop"]:
+                    logger.info("Exit command received")
                     break
                 
                 # Process query
                 try:
-                    print("Processing...")
+                    self.pipeline_logger.log_agent_start(query, session_id)
+                    logger.info(f"Processing query: {query}")
                     response = await self.agent.run(query)
-                    # Don't call self._speak if the agent already has voice output
+                    self.pipeline_logger.log_agent_complete(
+                        response, session_id
+                    )
+                    
+                    # Don't call self._speak if agent has voice output
                     # This prevents the response from being spoken twice
                     if not self.agent.voice:
-                        await self._speak(response)
+                        await self._speak(response, session_id)
+                    
+                    self.pipeline_logger.end_session(session_id)
                 except Exception as e:
                     error_msg = f"Error: {str(e)}"
-                    print(error_msg)
-                    await self._speak(error_msg)
+                    logger.error(error_msg)
+                    self.pipeline_logger.log_agent_error(error_msg, session_id)
+                    await self._speak(error_msg, session_id)
+                    self.pipeline_logger.end_session(session_id)
                     break  # Exit after error
         except Exception as e:
-            print(f"Fatal error: {str(e)}")
+            logger.error(f"Fatal error: {str(e)}")
         finally:
             self.running = False
+            logger.info("Voice interface shutting down")
             await self._speak("Goodbye!")
 
-async def run_voice(agent: Agent) -> None:
+
+async def run_voice(
+    agent: Agent,
+    pipeline_logger: Optional[PipelineLogger] = None
+) -> None:
     """Run the voice interface."""
     try:
         # Start reminder service if initialized (inside the event loop)
         if agent.reminder_service:
             agent.reminder_service.start()
             
-        interface = VoiceInterface(agent)
+        interface = VoiceInterface(agent, pipeline_logger=pipeline_logger)
         await interface.run()
     finally:
         # Stop reminder service if it was started
         if agent.reminder_service:
             agent.reminder_service.stop()
             
-        # Properly shut down MCP clients to avoid "unhandled errors in a TaskGroup" message
+        # Properly shut down MCP clients
         await agent.shutdown_mcp_clients()

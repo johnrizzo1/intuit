@@ -71,3 +71,34 @@ class RemindersTool:
             os.remove(filepath)
             return f"Reminder deleted with ID: {reminder_id}"
         return f"Error: Reminder with ID '{reminder_id}' not found at {filepath}"
+    
+    async def _arun(self, action: str, content: Optional[str] = None,
+                    reminder_time: Optional[str] = None, keyword: Optional[str] = None,
+                    id: Optional[str] = None) -> str:
+        """
+        Async run method for LangChain compatibility.
+        Routes the action to the appropriate method.
+        """
+        if action == "add":
+            if not content:
+                return "Error: 'content' is required for add action"
+            # Parse reminder_time if provided
+            parsed_time = None
+            if reminder_time:
+                try:
+                    parsed_time = datetime.fromisoformat(reminder_time)
+                except ValueError:
+                    return f"Error: Invalid reminder_time format: {reminder_time}"
+            return self.add_reminder(content, parsed_time)
+        elif action == "list":
+            return self.list_reminders()
+        elif action == "search":
+            if not keyword:
+                return "Error: 'keyword' is required for search action"
+            return self.search_reminders(keyword)
+        elif action == "delete":
+            if not id:
+                return "Error: 'id' is required for delete action"
+            return self.delete_reminder(id)
+        else:
+            return f"Error: Unknown action '{action}'"

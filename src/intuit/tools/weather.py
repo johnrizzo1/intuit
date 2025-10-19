@@ -2,11 +2,14 @@
 Weather tool implementation for Intuit.
 """
 import os
+import logging
 import aiohttp
 from typing import Dict, Any, Optional, Tuple
 from pydantic import Field, PrivateAttr
 
 from .basetool import BaseTool
+
+logger = logging.getLogger(__name__)
 
 class WeatherTool(BaseTool):
     """Tool for getting weather information."""
@@ -30,8 +33,11 @@ class WeatherTool(BaseTool):
         if self._client is None or self._client.closed:
             self._client = aiohttp.ClientSession()
     
-    async def _get_location_coords(self, location: str) -> Optional[Tuple[float, float]]:
+    async def _get_location_coords(
+        self, location: str
+    ) -> Optional[Tuple[float, float]]:
         """Get coordinates for a location."""
+        logger.debug(f"Getting coordinates for location: {location}")
         await self._ensure_client()
         url = f"http://api.openweathermap.org/geo/1.0/direct"
         params = {
@@ -43,11 +49,17 @@ class WeatherTool(BaseTool):
         async with self._client.get(url, params=params) as response:
             data = await response.json()
             if not data:
+                logger.warning(f"No coordinates found for location: {location}")
                 return None
-            return (data[0]["lat"], data[0]["lon"])
+            coords = (data[0]["lat"], data[0]["lon"])
+            logger.debug(f"Found coordinates: {coords}")
+            return coords
     
-    async def _get_weather_data(self, lat: float, lon: float) -> Dict[str, Any]:
+    async def _get_weather_data(
+        self, lat: float, lon: float
+    ) -> Dict[str, Any]:
         """Get current weather data."""
+        logger.debug(f"Fetching current weather for coords: ({lat}, {lon})")
         await self._ensure_client()
         url = "http://api.openweathermap.org/data/2.5/weather"
         params = {
@@ -58,7 +70,12 @@ class WeatherTool(BaseTool):
         }
         
         async with self._client.get(url, params=params) as response:
-            return await response.json()
+            data = await response.json()
+            logger.debug(
+                f"Current weather: {data.get('main', {}).get('temp')}°C, "
+                f"{data.get('weather', [{}])[0].get('description', 'N/A')}"
+            )
+            return data
     
     async def _get_forecast(self, lat: float, lon: float) -> Dict[str, Any]:
         """Get weather forecast."""
@@ -84,13 +101,17 @@ class WeatherTool(BaseTool):
         Returns:
             Dict containing current weather and forecast
         """
+        logger.info(f"WeatherTool called with location: {location}")
         try:
             # Get coordinates
             coords = await self._get_location_coords(location)
             if not coords:
-                return {"error": f"Location not found: {location}"}
+                error_msg = f"Location not found: {location}"
+                logger.error(error_msg)
+                return {"error": error_msg}
             
             lat, lon = coords
+            logger.debug(f"Using coordinates: lat={lat}, lon={lon}")
             
             # Get current weather and forecast
             current = await self._get_weather_data(lat, lon)
@@ -100,7 +121,7 @@ class WeatherTool(BaseTool):
             if self._client and not self._client.closed:
                 await self._client.close()
             
-            return {
+            result = {
                 "location": location,
                 "current": {
                     "temperature": current["main"]["temp"],
@@ -117,11 +138,21 @@ class WeatherTool(BaseTool):
                     for item in forecast["list"][:5]  # Next 5 time slots
                 ]
             }
+            
+            logger.info(
+                f"WeatherTool response: {result['current']['temperature']}°C, "
+                f"{result['current']['description']}"
+            )
+            logger.debug(f"Full weather response: {result}")
+            
+            return result
         except Exception as e:
             # Ensure client is closed even if there's an error
             if self._client and not self._client.closed:
                 await self._client.close()
-            return {"error": str(e)}
+            error_msg = str(e)
+            logger.error(f"WeatherTool error: {error_msg}", exc_info=True)
+            return {"error": error_msg}
     
     async def __aenter__(self):
         """Async context manager entry."""
@@ -136,41 +167,40 @@ class WeatherTool(BaseTool):
     async def get_weather_async(self, location: str) -> str:
         """
         Get weather information for a location (async version).
+        Voice-optimized: Returns only current temperature and conditions.
         
         Args:
             location: Name of the location (e.g., "London, UK")
             
         Returns:
-            String representation of weather information
+            Concise weather information (current conditions only)
         """
+        logger.debug(f"get_weather_async called with location: {location}")
         try:
             result = await self._arun(location)
             
             if "error" in result:
-                return f"Error: {result['error']}"
+                error_msg = f"Error: {result['error']}"
+                logger.error(error_msg)
+                return error_msg
             
-            # Format the result
-            output = f"Weather for {result['location']}:\n\n"
-            
-            # Current weather
+            # Voice-friendly format: Just current temp and conditions
             current = result["current"]
-            output += f"Current Conditions:\n"
-            output += f"- Temperature: {current['temperature']}°C\n"
-            output += f"- Conditions: {current['description']}\n"
-            output += f"- Humidity: {current['humidity']}%\n"
-            output += f"- Wind Speed: {current['wind_speed']} m/s\n\n"
+            temp = current['temperature']
+            conditions = current['description']
             
-            # Forecast
-            output += "Forecast:\n"
-            for item in result["forecast"]:
-                # Convert timestamp to readable format
-                from datetime import datetime
-                time_str = datetime.fromtimestamp(item["time"]).strftime("%Y-%m-%d %H:%M")
-                output += f"- {time_str}: {item['temperature']}°C, {item['description']}\n"
+            # Simple, concise output for voice
+            output = (
+                f"{result['location']}: {temp}°C and {conditions}."
+            )
             
+            logger.info(f"Voice-optimized weather response for {location}")
+            logger.debug(f"Full data available but returning concise: {output}")
             return output
         except Exception as e:
-            return f"Error getting weather information: {str(e)}"
+            error_msg = f"Error getting weather information: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            return error_msg
     
     def get_weather(self, location: str) -> str:
         """

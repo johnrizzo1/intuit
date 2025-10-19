@@ -15,6 +15,9 @@ from ..utils.spinner import ThinkingSpinner, with_spinner
 
 logger = logging.getLogger(__name__)
 
+# Suppress ChromaDB telemetry errors
+logging.getLogger("chromadb.telemetry.product.posthog").setLevel(logging.CRITICAL)
+
 class ChromaMemoryStore:
     """Memory store implementation for Intuit using ChromaDB for persistence."""
     
@@ -76,8 +79,11 @@ class ChromaMemoryStore:
             Memory ID
         """
         try:
+            logger.info(f"[MEMORY STORE] add_memory called with content='{content[:50]}...', metadata={metadata}")
+            
             # Generate a unique ID for the memory
             memory_id = str(uuid.uuid4())
+            logger.debug(f"[MEMORY STORE] Generated memory ID: {memory_id}")
             
             # Prepare metadata with timestamps
             now = datetime.now().isoformat()
@@ -92,18 +98,21 @@ class ChromaMemoryStore:
                 "created_at": now,
                 "updated_at": now
             })
+            logger.debug(f"[MEMORY STORE] Prepared metadata: {memory_metadata}")
             
             # Add the memory to the collection
+            logger.debug(f"[MEMORY STORE] Adding to ChromaDB collection...")
             self.collection.add(
                 documents=[content],
                 metadatas=[memory_metadata],
                 ids=[memory_id]
             )
             
-            logger.info(f"Added memory with ID: {memory_id}")
+            logger.info(f"[MEMORY STORE] Successfully added memory with ID: {memory_id}")
+            logger.debug(f"[MEMORY STORE] Collection now has {self.collection.count()} memories")
             return memory_id
         except Exception as e:
-            logger.error(f"Error adding memory: {e}")
+            logger.error(f"[MEMORY STORE] Error adding memory: {e}", exc_info=True)
             raise
     
     async def search_memories(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
@@ -121,13 +130,16 @@ class ChromaMemoryStore:
                             spinner=None,
                             color="magenta") as spinner:
             try:
-                logger.info(f"Searching memories with query: {query}")
+                logger.info(f"[MEMORY STORE] search_memories called with query='{query}', limit={limit}")
+                logger.debug(f"[MEMORY STORE] Collection has {self.collection.count()} total memories")
                 
                 # Handle empty query to list all memories
                 if not query:
+                    logger.debug(f"[MEMORY STORE] Empty query - listing all memories")
                     results = self.collection.get(
                         limit=limit
                     )
+                    logger.debug(f"[MEMORY STORE] Got {len(results.get('documents', []))} results")
                     
                     # Convert results to a list of dictionaries
                     memories = []
@@ -142,35 +154,34 @@ class ChromaMemoryStore:
                         memories.append(memory)
                 else:
                     # Use query_texts for semantic search
+                    logger.debug(f"[MEMORY STORE] Performing semantic search with query: {query}")
                     results = self.collection.query(
                         query_texts=[query],
                         n_results=limit
                     )
+                    logger.debug(f"[MEMORY STORE] Query returned {len(results.get('documents', [[]])[0])} results")
                     
                     # Extract results from the first query
                     if results and 'documents' in results and results['documents'] and results['documents'][0]:
                         documents = results['documents'][0]
                         metadatas = results['metadatas'][0]
                         ids = results['ids'][0]
+                        distances = results.get('distances', [[]])[0] if 'distances' in results else []
                         
                         # Convert results to a list of dictionaries
                         memories = []
                         for i in range(len(documents)):
-                            # Check if the content or metadata contains the query string (case-insensitive)
-                            content = documents[i].lower()
-                            query_lower = query.lower()
-                            
-                            # Only include results that contain the query string or are semantically relevant
-                            # Since we can't get distance scores, we'll use string matching as a fallback
-                            if query_lower in content:
-                                memory = {
-                                    "id": ids[i],
-                                    "content": documents[i],
-                                    "metadata": metadatas[i],
-                                    "created_at": metadatas[i].get("created_at"),
-                                    "updated_at": metadatas[i].get("updated_at")
-                                }
-                                memories.append(memory)
+                            memory = {
+                                "id": ids[i],
+                                "content": documents[i],
+                                "metadata": metadatas[i],
+                                "created_at": metadatas[i].get("created_at"),
+                                "updated_at": metadatas[i].get("updated_at")
+                            }
+                            # Add distance if available
+                            if distances and i < len(distances):
+                                memory["distance"] = distances[i]
+                            memories.append(memory)
                     else:
                         memories = []
                 

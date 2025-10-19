@@ -70,3 +70,26 @@ class NotesTool:
             os.remove(filepath)
             return f"Note deleted with ID: {note_id}"
         return f"Error: Note with ID '{note_id}' not found at {filepath}"
+    
+    async def _arun(self, action: str, content: Optional[str] = None,
+                    keyword: Optional[str] = None, id: Optional[str] = None) -> str:
+        """
+        Async run method for LangChain compatibility.
+        Routes the action to the appropriate method.
+        """
+        if action == "add":
+            if not content:
+                return "Error: 'content' is required for add action"
+            return self.add_note(content)
+        elif action == "list":
+            return self.list_notes()
+        elif action == "search":
+            if not keyword:
+                return "Error: 'keyword' is required for search action"
+            return self.search_notes(keyword)
+        elif action == "delete":
+            if not id:
+                return "Error: 'id' is required for delete action"
+            return self.delete_note(id)
+        else:
+            return f"Error: Unknown action '{action}'"

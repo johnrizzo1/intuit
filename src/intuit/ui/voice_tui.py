@@ -5,6 +5,7 @@ This module provides a rich terminal user interface for voice interactions,
 displaying conversation history, audio metrics, and real-time status.
 """
 import asyncio
+import logging
 import time
 from datetime import datetime
 from typing import Optional, List
@@ -12,6 +13,7 @@ from typing import Optional, List
 import numpy as np
 import sounddevice as sd
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.containers import (
     Container,
     Horizontal,
@@ -25,6 +27,10 @@ from rich.panel import Panel
 from rich.align import Align
 
 from ..agent import Agent
+from ..dictation import DictationMode, DictationState
+from ..logging_config import PipelineLogger, get_pipeline_logger
+
+logger = logging.getLogger(__name__)
 
 
 class AudioMeter(Static):
@@ -106,17 +112,29 @@ class StatusBar(Static):
     listening = reactive(False)
     processing = reactive(False)
     speaking = reactive(False)
+    dictation_mode = reactive(False)
+    dictation_state = reactive("idle")
     
     def render(self) -> Panel:
         """Render the status bar."""
         status_icons = []
         
-        if self.listening:
-            status_icons.append("[cyan]🎤 Listening[/]")
-        if self.processing:
-            status_icons.append("[yellow]⚙️  Processing[/]")
-        if self.speaking:
-            status_icons.append("[green]🔊 Speaking[/]")
+        if self.dictation_mode:
+            # Dictation mode indicators
+            if self.dictation_state == "listening":
+                status_icons.append("[green]📝 Dictating[/]")
+            elif self.dictation_state == "paused":
+                status_icons.append("[yellow]⏸️  Dictation Paused[/]")
+            elif self.dictation_state == "ended":
+                status_icons.append("[red]🛑 Dictation Ended[/]")
+        else:
+            # Normal mode indicators
+            if self.listening:
+                status_icons.append("[cyan]🎤 Listening[/]")
+            if self.processing:
+                status_icons.append("[yellow]⚙️  Processing[/]")
+            if self.speaking:
+                status_icons.append("[green]🔊 Speaking[/]")
         
         if not status_icons:
             status_icons.append("[dim]⏸️  Idle[/]")
@@ -163,6 +181,33 @@ Duration:   {self.duration:.1f}s
         return Panel(content, title="Metrics", border_style="yellow")
 
 
+class DictationDisplay(ScrollableContainer):
+    """Widget to display live dictation transcription."""
+    
+    transcription = reactive("")
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.text_widget: Optional[Static] = None
+    
+    def on_mount(self) -> None:
+        """Called when widget is mounted."""
+        self.text_widget = Static("", id="dictation-text")
+        self.mount(self.text_widget)
+    
+    def update_transcription(self, text: str) -> None:
+        """Update the displayed transcription."""
+        self.transcription = text
+        if self.text_widget:
+            self.text_widget.update(text)
+        # Auto-scroll to bottom
+        self.scroll_end(animate=False)
+    
+    def clear_transcription(self) -> None:
+        """Clear the transcription display."""
+        self.update_transcription("")
+
+
 class InputArea(Container):
     """Widget for text input with send button."""
     
@@ -201,6 +246,17 @@ class VoiceTUI(App):
         height: 1fr;
         border: solid cyan;
         padding: 1;
+    }
+    
+    #dictation-display {
+        height: 1fr;
+        border: solid green;
+        padding: 1;
+        background: $surface;
+    }
+    
+    #dictation-text {
+        color: $text;
     }
     
     #input-area {
@@ -250,12 +306,19 @@ class VoiceTUI(App):
     """
     
     BINDINGS = [
-        ("ctrl+q", "quit", "Quit"),
-        ("ctrl+c", "clear", "Clear"),
-        ("ctrl+l", "toggle_listen", "Listen"),
+        Binding("ctrl+q", "quit", "Quit", show=True),
+        Binding("ctrl+c", "clear_history", "Clear History", show=True),
+        Binding("ctrl+l", "toggle_listen", "Privacy Mode", show=True),
+        Binding("ctrl+d", "toggle_dictation", "Dictation", show=True),
     ]
     
-    def __init__(self, agent: Agent, **kwargs):
+    def __init__(
+        self,
+        agent: Agent,
+        enable_dictation: bool = False,
+        pipeline_logger: Optional[PipelineLogger] = None,
+        **kwargs
+    ):
         super().__init__(**kwargs)
         self.agent = agent
         self.audio_meter: Optional[AudioMeter] = None
@@ -263,9 +326,17 @@ class VoiceTUI(App):
         self.conversation: Optional[ConversationHistory] = None
         self.metrics: Optional[VoiceMetrics] = None
         self.text_input: Optional[TextArea] = None
+        self.dictation_display: Optional[DictationDisplay] = None
         self.running = True
         self.listening_mode = True  # Toggle between voice and text input
         self.voice_loop_active = True  # Control voice loop
+        self.pipeline_logger = pipeline_logger or get_pipeline_logger()
+        
+        # Dictation mode
+        self.dictation_enabled = enable_dictation
+        self.dictation_mode: Optional[DictationMode] = None
+        self.dictation_task: Optional[asyncio.Task] = None
+        self.in_dictation = False
         
         # Audio monitoring
         self.audio_queue = asyncio.Queue()
@@ -280,8 +351,18 @@ class VoiceTUI(App):
         with Container(id="main-container"):
             # Chat panel (2/3 width)
             with Container(id="chat-panel"):
-                self.conversation = ConversationHistory(id="conversation")
+                # Always create both displays, show/hide based on mode
+                self.conversation = ConversationHistory(
+                    id="conversation"
+                )
+                self.conversation.display = not self.dictation_enabled
                 yield self.conversation
+                
+                self.dictation_display = DictationDisplay(
+                    id="dictation-display"
+                )
+                self.dictation_display.display = self.dictation_enabled
+                yield self.dictation_display
                 
                 # Input area
                 with Container(id="input-area"):
@@ -308,20 +389,29 @@ class VoiceTUI(App):
     def on_mount(self) -> None:
         """Called when app is mounted."""
         self.title = "Intuit Voice Assistant"
-        self.sub_title = "Ctrl+Q: Quit | Ctrl+C: Clear | Ctrl+L: Toggle Listen"
+        bindings = (
+            "Ctrl+Q: Quit | Ctrl+C: Clear History | "
+            "Ctrl+L: Privacy Mode | Ctrl+D: Dictation"
+        )
+        self.sub_title = bindings
         
         if self.status_bar:
-            self.status_bar.status = "Ready - Voice mode active"
+            mode = "Dictation" if self.dictation_enabled else "Voice"
+            self.status_bar.status = f"Ready - {mode} mode available"
         
-        # Focus on text input
+        # Focus on text input (if not in dictation mode)
         if self.text_input:
             self.text_input.focus()
         
         # Start audio monitoring
         self.monitoring_task = asyncio.create_task(self._monitor_audio())
         
-        # Start voice interaction loop
-        asyncio.create_task(self._voice_loop())
+        # Start voice interaction loop (unless starting in dictation mode)
+        if not self.dictation_enabled:
+            asyncio.create_task(self._voice_loop())
+        else:
+            # Start dictation mode automatically if enabled
+            asyncio.create_task(self._start_dictation())
     
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button press events."""
@@ -470,7 +560,10 @@ class VoiceTUI(App):
         from ..ui.voice import VoiceInterface
         
         try:
-            voice_interface = VoiceInterface(self.agent)
+            voice_interface = VoiceInterface(
+                self.agent,
+                pipeline_logger=self.pipeline_logger
+            )
             
             if self.conversation:
                 self.conversation.add_message(
@@ -482,6 +575,11 @@ class VoiceTUI(App):
                 try:
                     # Skip if voice loop is paused (text input active)
                     if not self.voice_loop_active:
+                        await asyncio.sleep(0.5)
+                        continue
+                    
+                    # Skip if in text-only mode (not listening for voice)
+                    if not self.listening_mode:
                         await asyncio.sleep(0.5)
                         continue
                     
@@ -514,6 +612,10 @@ class VoiceTUI(App):
                     if not query:
                         continue
                     
+                    session_id = (
+                        voice_interface.pipeline_logger.current_session_id
+                    )
+                    
                     # Update metrics
                     if self.metrics:
                         self.metrics.duration = listen_duration
@@ -524,24 +626,60 @@ class VoiceTUI(App):
                         self.conversation.add_message("You", query)
                     
                     # Handle exit command
-                    if query.strip().lower() in ["exit", "quit", "stop"]:
+                    if query.strip().lower() in [
+                        "exit", "quit", "stop", "goodbye", "bye"
+                    ]:
+                        goodbye_msg = "Goodbye! Have a great day!"
+                        
+                        # Add to conversation
                         if self.conversation:
                             self.conversation.add_message(
-                                "System",
-                                "Goodbye!"
+                                "Assistant",
+                                goodbye_msg
                             )
-                        await asyncio.sleep(1)
+                        
+                        # Speak goodbye
+                        if self.status_bar:
+                            self.status_bar.speaking = True
+                            self.status_bar.status = "Speaking..."
+                        
+                        await voice_interface._speak(goodbye_msg, session_id)
+                        
+                        if self.status_bar:
+                            self.status_bar.speaking = False
+                        
+                        # Exit after speaking
+                        await asyncio.sleep(0.5)
                         self.exit()
                         break
+                    
+                    # Check for dictation start command
+                    import re
+                    dictation_pattern = (
+                        r"(start|take|begin)\s+(a\s+)?dictation"
+                    )
+                    if re.search(dictation_pattern, query.lower()):
+                        # Start dictation mode instead of sending to agent
+                        if self.conversation:
+                            self.conversation.add_message(
+                                "Assistant",
+                                "Starting dictation mode..."
+                            )
+                        await self._start_dictation()
+                        continue
                     
                     # Process query
                     if self.status_bar:
                         self.status_bar.processing = True
                         self.status_bar.status = "Processing your request..."
                     
+                    self.pipeline_logger.log_agent_start(query, session_id)
                     start_time = time.time()
                     response = await self.agent.run(query)
                     process_duration = time.time() - start_time
+                    self.pipeline_logger.log_agent_complete(
+                        response, session_id
+                    )
                     
                     if self.status_bar:
                         self.status_bar.processing = False
@@ -554,14 +692,92 @@ class VoiceTUI(App):
                     if self.conversation:
                         self.conversation.add_message("Assistant", response)
                     
+                    # Check if response is long and needs summarization
+                    response_to_speak = response
+                    full_response = None
+                    
+                    # Count sentences (rough estimate)
+                    sentence_count = (
+                        response.count('.') +
+                        response.count('!') +
+                        response.count('?')
+                    )
+                    word_count = len(response.split())
+                    
+                    # If response is longer than 30 words AND has
+                    # multiple sentences (truly long)
+                    # This prevents short, single-sentence responses
+                    # from being summarized
+                    if word_count > 30 and sentence_count > 1:
+                        full_response = response
+                        
+                        # Ask agent to create a one-sentence summary
+                        if self.status_bar:
+                            self.status_bar.status = "Creating summary..."
+                        
+                        summary_prompt = (
+                            f"Summarize the following response in "
+                            f"exactly one short sentence "
+                            f"(10 words or less):\n\n{response}"
+                        )
+                        summary = await self.agent.run(summary_prompt)
+                        response_to_speak = summary.strip()
+                        
+                        logger.info(
+                            f"Long response detected. "
+                            f"Summary: {response_to_speak}"
+                        )
+                    
                     # Speak response (mark as speaking to prevent listening)
                     if self.status_bar:
                         self.status_bar.speaking = True
                         self.status_bar.status = "Speaking response..."
                     
-                    await voice_interface._speak(response)
+                    await voice_interface._speak(response_to_speak, session_id)
                     
-                    # Add a small delay after speaking to avoid picking up echo
+                    # If we summarized, ask if they want the full response
+                    if full_response:
+                        await asyncio.sleep(0.5)
+                        
+                        prompt_text = (
+                            "Would you like me to read the full response?"
+                        )
+                        await voice_interface._speak(prompt_text, session_id)
+                        
+                        # Listen for yes/no response
+                        if self.status_bar:
+                            self.status_bar.speaking = False
+                            self.status_bar.listening = True
+                            self.status_bar.status = "Listening for yes/no..."
+                        
+                        user_response_session = (
+                            voice_interface.pipeline_logger.start_session()
+                        )
+                        user_response = await voice_interface._listen()
+                        
+                        if user_response:
+                            user_response_lower = user_response.lower().strip()
+                            yes_words = [
+                                'yes', 'yeah', 'yep',
+                                'sure', 'please', 'read'
+                            ]
+                            if any(word in user_response_lower
+                                   for word in yes_words):
+                                if self.status_bar:
+                                    self.status_bar.speaking = True
+                                    self.status_bar.status = (
+                                        "Reading full response..."
+                                    )
+                                
+                                await voice_interface._speak(
+                                    full_response,
+                                    user_response_session
+                                )
+                    
+                    # End session
+                    self.pipeline_logger.end_session(session_id)
+                    
+                    # Add a small delay after speaking to avoid echo
                     await asyncio.sleep(0.5)
                     
                     if self.status_bar:
@@ -587,7 +803,7 @@ class VoiceTUI(App):
                     f"Fatal error: {str(e)}"
                 )
     
-    def action_clear(self) -> None:
+    def action_clear_history(self) -> None:
         """Clear conversation history."""
         if self.conversation:
             for msg in self.conversation.messages:
@@ -610,20 +826,149 @@ class VoiceTUI(App):
                 f"Switched to {mode} mode"
             )
     
+    def action_toggle_dictation(self) -> None:
+        """Toggle dictation mode on/off."""
+        if not self.in_dictation:
+            # Start dictation - use run_worker for async tasks in Textual
+            self.run_worker(self._start_dictation(), exclusive=True)
+        else:
+            # End dictation
+            if self.dictation_mode:
+                self.dictation_mode.stop()
+    
+    async def _start_dictation(self) -> None:
+        """Start dictation mode."""
+        try:
+            import speech_recognition as sr
+            
+            self.in_dictation = True
+            self.voice_loop_active = False  # Pause normal voice loop
+            
+            # Show dictation display, hide conversation
+            if self.conversation:
+                self.conversation.display = False
+            if self.dictation_display:
+                self.dictation_display.display = True
+            if self.text_input:
+                self.text_input.display = False
+            
+            # Initialize dictation mode
+            recognizer = sr.Recognizer()
+            self.dictation_mode = DictationMode(
+                recognizer=recognizer,
+                silence_threshold=30.0,
+                sample_rate=self.sample_rate,
+                on_transcription=self._on_dictation_text,
+                on_state_change=self._on_dictation_state_change,
+            )
+            
+            # Update UI
+            if self.status_bar:
+                self.status_bar.dictation_mode = True
+                self.status_bar.status = "Dictation mode started"
+            
+            # Start dictation
+            self.dictation_mode._set_state(DictationState.LISTENING)
+            self.dictation_task = asyncio.create_task(
+                self.dictation_mode.run_dictation_loop()
+            )
+            
+            # Wait for dictation to end
+            await self.dictation_task
+            
+            # Save transcription
+            filepath = await self.dictation_mode.save_transcription()
+            
+            # Update UI - switch back to conversation
+            if self.dictation_display:
+                self.dictation_display.display = False
+            if self.conversation:
+                self.conversation.display = True
+            if self.text_input:
+                self.text_input.display = True
+            
+            if self.status_bar:
+                self.status_bar.dictation_mode = False
+                self.status_bar.status = f"Dictation saved to: {filepath}"
+            
+            if self.conversation:
+                self.conversation.add_message(
+                    "System",
+                    f"Dictation saved to: {filepath}"
+                )
+            
+            # Clean up
+            self.in_dictation = False
+            self.voice_loop_active = True
+            
+        except Exception as e:
+            self.log(f"Error in dictation mode: {e}")
+            
+            # Restore UI on error
+            if self.dictation_display:
+                self.dictation_display.display = False
+            if self.conversation:
+                self.conversation.display = True
+            if self.text_input:
+                self.text_input.display = True
+            
+            if self.status_bar:
+                self.status_bar.status = f"Dictation error: {str(e)}"
+            self.in_dictation = False
+            self.voice_loop_active = True
+    
+    def _on_dictation_text(self, text: str) -> None:
+        """Callback for new dictation text."""
+        logger.info(f"Dictation callback received: {text}")
+        if self.dictation_display and self.dictation_mode:
+            # Append new text to display
+            current = self.dictation_mode.get_full_transcription()
+            logger.info(f"Updating display with: {current}")
+            self.dictation_display.update_transcription(current)
+        else:
+            logger.warning(
+                f"Display not ready: display={self.dictation_display}, "
+                f"mode={self.dictation_mode}"
+            )
+    
+    def _on_dictation_state_change(self, state: DictationState) -> None:
+        """Callback for dictation state changes."""
+        if self.status_bar:
+            self.status_bar.dictation_state = state.value
+            
+            if state == DictationState.LISTENING:
+                self.status_bar.status = "Listening for dictation..."
+            elif state == DictationState.PAUSED:
+                self.status_bar.status = "Dictation paused"
+            elif state == DictationState.ENDED:
+                self.status_bar.status = "Dictation ended"
+    
     def action_quit(self) -> None:
         """Quit the application."""
+        # Stop dictation if active
+        if self.in_dictation and self.dictation_mode:
+            self.dictation_mode.stop()
+        
         self.running = False
         self.exit()
 
 
-async def run_voice_tui(agent: Agent) -> None:
+async def run_voice_tui(
+    agent: Agent,
+    enable_dictation: bool = False,
+    pipeline_logger: Optional[PipelineLogger] = None
+) -> None:
     """Run the voice TUI interface."""
     try:
         # Start reminder service if initialized
         if agent.reminder_service:
             agent.reminder_service.start()
         
-        app = VoiceTUI(agent)
+        app = VoiceTUI(
+            agent,
+            enable_dictation=enable_dictation,
+            pipeline_logger=pipeline_logger
+        )
         await app.run_async()
     
     finally:

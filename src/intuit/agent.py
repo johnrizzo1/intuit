@@ -5,7 +5,7 @@ import os
 import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from datetime import datetime # Import datetime
 from pydantic import BaseModel, Field
 from langchain.agents import AgentExecutor
@@ -286,9 +286,29 @@ class Agent:
                                 query = kwargs.get("query", "")
                                 limit = kwargs.get("limit", 5)
                                 
-                                # Run the search
+                                # Run the search (filesystem_tool.run is async, so we need to run it in an event loop)
                                 logger.info(f"Executing filesystem search with path={path}, query='{query}', limit={limit}")
-                                result = filesystem_tool.run(action="search", path=path, query=query, limit=limit)
+                                try:
+                                    # Try to get the current event loop
+                                    loop = asyncio.get_event_loop()
+                                    if loop.is_running():
+                                        # If loop is running, create a task and wait for it
+                                        import concurrent.futures
+                                        with concurrent.futures.ThreadPoolExecutor() as pool:
+                                            result = pool.submit(
+                                                asyncio.run,
+                                                filesystem_tool.run(action="search", path=path, query=query, limit=limit)
+                                            ).result()
+                                    else:
+                                        # If loop is not running, use asyncio.run
+                                        result = asyncio.run(
+                                            filesystem_tool.run(action="search", path=path, query=query, limit=limit)
+                                        )
+                                except RuntimeError:
+                                    # No event loop, use asyncio.run
+                                    result = asyncio.run(
+                                        filesystem_tool.run(action="search", path=path, query=query, limit=limit)
+                                    )
                                 
                                 # Log the result for debugging
                                 logger.info(f"Filesystem search result: {result}")
@@ -985,18 +1005,29 @@ Always be concise and clear in your responses.'''),
                             },
                             "path": {
                                 "type": "string",
-                                "description": "The path to operate on"
+                                "description": "The path to operate on",
+                                "default": "."
                             },
                             "query": {
                                 "type": "string",
-                                "description": "The search query (for search action)"
+                                "description": "Search query (for search action)"
                             },
                             "content": {
                                 "type": "string",
                                 "description": "Content to write (for write action)"
+                            },
+                            "recursive": {
+                                "type": "boolean",
+                                "description": "List recursively (for list action)",
+                                "default": False
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "description": "Max search results (for search)",
+                                "default": 5
                             }
                         },
-                        "required": ["action", "path"]
+                        "required": ["action"]
                     }
                 })
             elif tool.name == "weather":
@@ -1130,8 +1161,13 @@ Always be concise and clear in your responses.'''),
             {
                 "input": lambda x: x["input"],
                 "chat_history": lambda x: [
-                    HumanMessage(content=msg["content"]) if msg["role"] == "user"
-                    else AIMessage(content=msg["content"])
+                    # Handle both dict and Message objects
+                    msg if isinstance(msg, (HumanMessage, AIMessage))
+                    else (
+                        HumanMessage(content=msg["content"])
+                        if msg["role"] == "user"
+                        else AIMessage(content=msg["content"])
+                    )
                     for msg in x["chat_history"]
                 ],
                 "agent_scratchpad": lambda x: format_to_openai_function_messages(
@@ -1192,11 +1228,18 @@ Always be concise and clear in your responses.'''),
                     args_schema_dict = {"action": str, "content": Optional[str], "reminder_time": Optional[datetime], "keyword": Optional[str], "id": Optional[str]}
                 
                 # Pydantic v2: use __annotations__ for dynamic model creation
+                # For Optional fields, we need to provide default values
                 annotations = {k: v for k, v in args_schema_dict.items()}
+                defaults = {}
+                for k, v in args_schema_dict.items():
+                    # Check if the type is Optional (Union with None)
+                    if hasattr(v, '__origin__') and v.__origin__ is Union:
+                        defaults[k] = None
+                
                 args_schema = type(
                     f"{tool_instance.name}Schema",
                     (BaseModel,),
-                    {"__annotations__": annotations}
+                    {"__annotations__": annotations, **defaults}
                 ) if args_schema_dict else None
                 langchain_tools_list.append(
                     StructuredTool.from_function(

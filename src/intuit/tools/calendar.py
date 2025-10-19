@@ -109,3 +109,26 @@ class CalendarTool:
             os.remove(filepath)
             return f"Event deleted with ID: {event_id}"
         return f"Error: Event with ID '{event_id}' not found at {filepath}"
+    
+    async def _arun(self, action: str, event: Optional[str] = None,
+                    keyword: Optional[str] = None, filename: Optional[str] = None) -> str:
+        """
+        Async run method for LangChain compatibility.
+        Routes the action to the appropriate method.
+        """
+        if action == "add":
+            if not event:
+                return "Error: 'event' is required for add action"
+            return self.add_event(event)
+        elif action == "list":
+            return self.list_events()
+        elif action == "search":
+            if not keyword:
+                return "Error: 'keyword' is required for search action"
+            return self.search_events(keyword)
+        elif action == "delete":
+            if not filename:
+                return "Error: 'filename' is required for delete action"
+            return self.delete_event(filename)
+        else:
+            return f"Error: Unknown action '{action}'"

@@ -11,6 +11,7 @@ Intuit is a flexible, agentic personal assistant that can be accessed via CLI, v
 - Local Productivity Tools: Calendar, Notes, and Reminders
 - Persistent memory storage with ChromaDB
 - Voice interface with real-time processing and rich TUI
+- Dictation mode for continuous transcription
 - CLI interface with rich text formatting
 - Multi-process support for improved latency
 - Full-duplex communication
@@ -92,6 +93,59 @@ uv run intuit voice --no-tui
 ```
 
 For more details about the Voice TUI, see [Voice TUI Documentation](docs/voice_tui.md).
+
+### Dictation Mode
+
+Start the agent in dictation mode for continuous transcription:
+
+```bash
+uv run intuit voice --dictation
+```
+
+Dictation mode provides:
+- Continuous voice transcription with real-time display
+- Smart command detection ("Pause Dictation", "Resume Dictation", "End Dictation")
+- Wake word support ("Hey Intuit" for command mode)
+- Automatic file saving with timestamps
+- 30-second silence threshold for natural pauses
+
+Voice commands in dictation mode:
+- **"Start Dictation"** - Begin dictation session
+- **"Pause Dictation"** - Temporarily pause transcription
+- **"Resume Dictation"** - Resume after pause
+- **"End Dictation"** - End session and save to file
+- **"Hey Intuit [command]"** - Enter command mode without transcribing
+
+Dictation files are saved as `dictation_YYYYMMDD_HHMMSS.txt` in the current directory.
+
+For complete details, see [Dictation Mode Documentation](docs/dictation_mode.md).
+
+### Debug Mode and Logging
+
+Intuit includes comprehensive logging that redirects all output to a log file:
+
+```bash
+# Enable debug mode with detailed pipeline logging
+uv run intuit voice --debug
+
+# Specify custom log file
+uv run intuit voice --log-file my-logs.log
+
+# Enable console output (logs go to both file and console)
+uv run intuit voice --debug --console
+
+# Combined: debug mode with console output and custom log file
+uv run intuit voice --debug --console --log-file debug.log
+```
+
+Debug mode tracks each voice interaction through the complete pipeline:
+- **STT (Speech-to-Text)**: Audio recording and transcription
+- **Agent Processing**: Query processing and response generation
+- **TTS (Text-to-Speech)**: Response conversion and playback
+
+Each interaction is assigned a unique session ID for easy log correlation.
+
+For complete details, see [Logging and Debug Documentation](docs/logging_and_debug.md).
 
 ### MCP Server Mode
 
@@ -356,6 +410,7 @@ intuit/
 │       │   ├── cli.py      # CLI interface
 │       │   ├── voice.py    # Basic voice interface
 │       │   └── voice_tui.py # Rich TUI for voice mode
+│       ├── dictation.py    # Dictation mode implementation
 │       └── vector_store/
 │           ├── __init__.py
 │           └── indexer.py

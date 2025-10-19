@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from .agent import Agent, AgentConfig
+from .logging_config import setup_logging, PipelineLogger
 from .mcp_server import (  # Import MCP Server
     DEFAULT_SERVER_HOST,
     DEFAULT_SERVER_PORT,
@@ -36,58 +37,12 @@ from .ui.voice_tui import run_voice_tui
 from .vector_store.indexer import VectorStore
 
 
-# Create a NullHandler that does nothing with log records
-class NullHandler(logging.Handler):
-    def emit(self, record):
-        pass
+# Note: Logging configuration is now handled by setup_logging() in logging_config.py
+# This is called at the start of each command (voice, chat, etc.)
+# Early logging suppression has been removed to allow proper logging configuration
 
-
-# Create a custom filter that blocks all log messages except ERROR and CRITICAL
-class SuppressFilter(logging.Filter):
-    def __init__(self, level=logging.ERROR):
-        self.level = level
-
-    def filter(self, record):
-        return record.levelno >= self.level
-
-
-# Completely disable all logging by default
-logging.basicConfig(
-    level=logging.ERROR,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    force=True,
-)
-
-# Create a null handler and suppress filter
-null_handler = NullHandler()
-suppress_filter = SuppressFilter(logging.ERROR)
-
-# Apply to root logger
-root_logger = logging.getLogger()
-root_logger.setLevel(logging.ERROR)
-root_logger.addHandler(null_handler)
-root_logger.addFilter(suppress_filter)
-
-# Remove all existing handlers from the root logger
-for handler in list(root_logger.handlers):
-    if handler != null_handler:
-        root_logger.removeHandler(handler)
-
-# Monkey patch the logging module to prevent other libraries from changing the configuration
-original_basicConfig = logging.basicConfig
-
-
-def patched_basicConfig(**kwargs):
-    # Do nothing to prevent other libraries from changing the config
-    pass
-
-
-logging.basicConfig = patched_basicConfig
-
-# Explicitly silence all known loggers
-all_loggers = [
-    "mcp",
-    "intuit",
+# Suppress noisy third-party loggers by default until setup_logging() is called
+for logger_name in [
     "chromadb",
     "urllib3",
     "httpx",
@@ -100,85 +55,14 @@ all_loggers = [
     "chromadb.server",
     "chromadb.config",
     "hnswlib",
-]
-
-for logger_name in all_loggers:
-    logger = logging.getLogger(logger_name)
-    logger.setLevel(logging.ERROR)
-    logger.addHandler(null_handler)
-    logger.addFilter(suppress_filter)
-    logger.propagate = False  # Prevent propagation to parent loggers
+]:
+    logging.getLogger(logger_name).setLevel(logging.WARNING)
 
 # Get our own logger
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.ERROR)
 
 # Create the main app
 app = typer.Typer(no_args_is_help=True)
-
-
-# Define a callback to handle verbosity
-def set_verbosity(
-    verbose: int = typer.Option(
-        0,
-        "--verbose",
-        "-v",
-        count=True,
-        help="Increase verbosity (can be used multiple times)",
-    )
-):
-    """Set the verbosity level based on the number of -v flags."""
-    global suppress_filter
-
-    # Set log levels based on verbosity count
-    if verbose == 0:
-        # Default: Show only errors
-        level = logging.ERROR
-    elif verbose == 1:
-        # -v: Show warnings and errors
-        level = logging.WARNING
-    elif verbose == 2:
-        # -vv: Show info, warnings, and errors
-        level = logging.INFO
-    elif verbose >= 3:
-        # -vvv or more: Show debug, info, warnings, and errors
-        level = logging.DEBUG
-
-    # Update the filter level
-    suppress_filter.level = level
-
-    # Update the root logger level
-    root_logger = logging.getLogger()
-    root_logger.setLevel(level)
-
-    # Update all logger levels
-    all_loggers = [
-        "mcp",
-        "intuit",
-        "chromadb",
-        "urllib3",
-        "httpx",
-        "httpcore",
-        "asyncio",
-        "chromadb.telemetry",
-        "chromadb.api",
-        "chromadb.segment",
-        "chromadb.db",
-        "chromadb.server",
-        "chromadb.config",
-        "hnswlib",
-    ]
-
-    for logger_name in all_loggers:
-        logger = logging.getLogger(logger_name)
-        logger.setLevel(level)
-
-    # Return value is required for the callback
-    return verbose
-
-
-# Register the callback
-app = typer.Typer(no_args_is_help=True, callback=set_verbosity)
 
 # Create Typer instances for each tool
 calendar_app = typer.Typer(name="calendar", help="Manage calendar events")
@@ -555,35 +439,8 @@ async def create_agent(
     Returns:
         Configured agent instance
     """
-    # Silence loggers if quiet is True
-    if quiet:
-        # Apply aggressive silencing
-        for logger_name in [
-            "",
-            "mcp",
-            "intuit",
-            "chromadb",
-            "urllib3",
-            "httpx",
-            "httpcore",
-            "asyncio",
-            "chromadb.telemetry",
-            "chromadb.api",
-            "chromadb.segment",
-            "chromadb.db",
-            "chromadb.server",
-            "chromadb.config",
-            "hnswlib",
-        ]:
-            logger = logging.getLogger(logger_name)
-            logger.setLevel(logging.ERROR)
-            logger.addHandler(null_handler)
-            logger.addFilter(suppress_filter)
-            logger.propagate = False
-
-        # Monkey patch the logging module again to ensure it stays disabled
-        logging.basicConfig = patched_basicConfig
-    else:
+    # Log configuration if not in quiet mode
+    if not quiet:
         logger.info("Creating agent with configuration:")
         logger.info("- Model: %s", model)
         logger.info("- Temperature: %f", temperature)
@@ -1269,6 +1126,25 @@ def voice(
     tui: bool = typer.Option(
         True, "--tui/--no-tui", help="Enable/disable TUI interface"
     ),
+    dictation: bool = typer.Option(
+        False,
+        "--dictation/--no-dictation",
+        help="Enable dictation mode for continuous transcription"
+    ),
+    debug: bool = typer.Option(
+        False,
+        "--debug/--no-debug",
+        help="Enable debug mode with detailed pipeline logging"
+    ),
+    log_file: str = typer.Option(
+        "output.log",
+        help="Path to log file"
+    ),
+    console_output: bool = typer.Option(
+        False,
+        "--console/--no-console",
+        help="Also output logs to console"
+    ),
     openai_api_base: Optional[str] = typer.Option(None, help="Base URL for OpenAI API"),
     openai_api_type: Optional[str] = typer.Option(
         None, help="Type of OpenAI API (openai/azure)"
@@ -1278,6 +1154,14 @@ def voice(
     ),
 ):
     """Start the Intuit assistant in voice mode with optional TUI."""
+    # Setup logging FIRST before any other operations
+    pipeline_logger = setup_logging(
+        log_file=log_file,
+        debug_mode=debug,
+        console_output=console_output
+    )
+    
+    # Now create the agent (which will log using our configuration)
     agent = asyncio.run(
         create_agent(
             model=model,
@@ -1286,7 +1170,7 @@ def voice(
             filesystem_path=index_path,
             enable_gmail=enable_gmail,
             enable_weather=enable_weather,
-            use_voice=True,  # Always enable voice in voice mode
+            use_voice=False,  # Voice interface handles TTS
             voice_language=voice_language,
             voice_slow=voice_slow,
             openai_api_base=openai_api_base,
@@ -1297,11 +1181,21 @@ def voice(
     try:
         # Use TUI or basic voice interface based on flag
         if tui:
-            asyncio.run(run_voice_tui(agent))
+            asyncio.run(run_voice_tui(
+                agent,
+                enable_dictation=dictation,
+                pipeline_logger=pipeline_logger
+            ))
         else:
-            asyncio.run(run_voice(agent))
+            if dictation:
+                logger = logging.getLogger('intuit')
+                logger.error("Dictation mode requires TUI. Use --tui flag.")
+                sys.exit(1)
+            asyncio.run(run_voice(agent, pipeline_logger=pipeline_logger))
     except KeyboardInterrupt:
-        print("\nStopping voice interface...")
+        if not console_output:
+            logger = logging.getLogger('intuit')
+            logger.info("Stopping voice interface...")
 
 
 def main():

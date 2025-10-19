@@ -519,9 +519,9 @@ def _run_mcp_server_process(host: str, port: int) -> None:
     logger.info(f"MCP server process started. Running server on {host}:{port}")
     try:
         # Use the global mcp_server instance which has tools registered.
-        # Configure uvicorn to be less verbose by setting log_level to ERROR
         # Use SSE transport with host/port parameters
-        mcp_server.run("sse", mount_path=f"/{host}:{port}", log_level="ERROR")
+        # Note: FastMCP.run() doesn't accept log_level parameter
+        mcp_server.run("sse", mount_path=f"/{host}:{port}")
     except Exception as e:
         # Log at INFO level instead of ERROR so it only shows with -v flag
         logger.info(f"Error running MCP server in child process: {e}", exc_info=True)

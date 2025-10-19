@@ -52,12 +52,13 @@ class IntuitMemoryManager:
                 
                 # Check if the manager has a process_conversation method
                 if hasattr(self.manager, 'process_conversation'):
-                    # Process the conversation
+                    # Process the conversation using LangMem
                     await self.manager.process_conversation(formatted_messages)
                     logger.info("Conversation processing complete")
                 else:
-                    # If the manager doesn't have a process_conversation method, log a warning
-                    logger.warning("Memory manager doesn't have a process_conversation method")
+                    # LangMem manager doesn't have process_conversation method
+                    # This is expected - we handle memory storage through our tools
+                    logger.debug("Using manual memory storage (LangMem process_conversation not available)")
                     
                     # Extract important information from the conversation and store it
                     # This is a simple implementation that just stores the last message

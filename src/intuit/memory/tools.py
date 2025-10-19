@@ -48,18 +48,20 @@ class MemoryAddTool(BaseTool):
         """Run the tool asynchronously."""
         tags = tags or []
         try:
-            logger.info(f"Adding memory: {content} (importance: {importance}, tags: {tags})")
+            logger.info(f"[MEMORY TOOL] add_memory called with content='{content}', importance={importance}, tags={tags}")
             memory_id = await self.memory_store.add_memory(
                 content=content,
                 metadata={"importance": importance, "tags": tags}
             )
+            logger.info(f"[MEMORY TOOL] Successfully added memory with ID: {memory_id}")
             return f"I've remembered that {content} (Memory ID: {memory_id})"
         except Exception as e:
-            logger.error(f"Error adding memory: {e}")
+            logger.error(f"[MEMORY TOOL] Error adding memory: {e}", exc_info=True)
             return f"I couldn't remember that information: {str(e)}"
     
     def _run(self, content: str, importance: int = 5, tags: Optional[List[str]] = None) -> str:
         """Run the tool synchronously."""
+        logger.info(f"[MEMORY TOOL] add_memory._run called (sync wrapper)")
         return asyncio.run(self._arun(content, importance, tags))
 
 class MemorySearchTool(BaseTool):
@@ -78,22 +80,26 @@ class MemorySearchTool(BaseTool):
     async def _arun(self, query: str, limit: int = 5) -> str:
         """Run the tool asynchronously."""
         try:
-            logger.info(f"Searching memories with query: {query} (limit: {limit})")
+            logger.info(f"[MEMORY TOOL] search_memory called with query='{query}', limit={limit}")
             memories = await self.memory_store.search_memories(query, limit)
+            logger.info(f"[MEMORY TOOL] Found {len(memories)} memories")
             
             if not memories:
+                logger.info(f"[MEMORY TOOL] No memories found for query: {query}")
                 return "I don't have any memories related to that."
             
             result = "Here's what I remember:\n\n"
             for i, memory in enumerate(memories):
                 result += f"{i+1}. {memory['content']}\n"
+                logger.debug(f"[MEMORY TOOL] Memory {i+1}: {memory['content'][:50]}...")
             return result
         except Exception as e:
-            logger.error(f"Error searching memories: {e}")
+            logger.error(f"[MEMORY TOOL] Error searching memories: {e}", exc_info=True)
             return f"I couldn't search my memories: {str(e)}"
     
     def _run(self, query: str, limit: int = 5) -> str:
         """Run the tool synchronously."""
+        logger.info(f"[MEMORY TOOL] search_memory._run called (sync wrapper)")
         return asyncio.run(self._arun(query, limit))
 
 class MemoryGetTool(BaseTool):
@@ -112,19 +118,22 @@ class MemoryGetTool(BaseTool):
     async def _arun(self, memory_id: str) -> str:
         """Run the tool asynchronously."""
         try:
-            logger.info(f"Getting memory with ID: {memory_id}")
+            logger.info(f"[MEMORY TOOL] get_memory called with memory_id='{memory_id}'")
             memory = await self.memory_store.get_memory(memory_id)
             
             if not memory:
+                logger.info(f"[MEMORY TOOL] Memory not found: {memory_id}")
                 return f"I couldn't find a memory with ID {memory_id}."
             
+            logger.info(f"[MEMORY TOOL] Retrieved memory: {memory['content'][:50]}...")
             return f"Memory {memory_id}: {memory['content']}"
         except Exception as e:
-            logger.error(f"Error getting memory: {e}")
+            logger.error(f"[MEMORY TOOL] Error getting memory: {e}", exc_info=True)
             return f"I couldn't retrieve that memory: {str(e)}"
     
     def _run(self, memory_id: str) -> str:
         """Run the tool synchronously."""
+        logger.info(f"[MEMORY TOOL] get_memory._run called (sync wrapper)")
         return asyncio.run(self._arun(memory_id))
 
 class MemoryDeleteTool(BaseTool):
@@ -143,19 +152,22 @@ class MemoryDeleteTool(BaseTool):
     async def _arun(self, memory_id: str) -> str:
         """Run the tool asynchronously."""
         try:
-            logger.info(f"Deleting memory with ID: {memory_id}")
+            logger.info(f"[MEMORY TOOL] delete_memory called with memory_id='{memory_id}'")
             success = await self.memory_store.delete_memory(memory_id)
             
             if not success:
+                logger.info(f"[MEMORY TOOL] Failed to delete memory: {memory_id}")
                 return f"I couldn't delete the memory with ID {memory_id}."
             
+            logger.info(f"[MEMORY TOOL] Successfully deleted memory: {memory_id}")
             return f"I've forgotten the memory with ID {memory_id}."
         except Exception as e:
-            logger.error(f"Error deleting memory: {e}")
+            logger.error(f"[MEMORY TOOL] Error deleting memory: {e}", exc_info=True)
             return f"I couldn't delete that memory: {str(e)}"
     
     def _run(self, memory_id: str) -> str:
         """Run the tool synchronously."""
+        logger.info(f"[MEMORY TOOL] delete_memory._run called (sync wrapper)")
         return asyncio.run(self._arun(memory_id))
 
 def get_memory_tools(memory_store: ChromaMemoryStore) -> List[BaseTool]:
