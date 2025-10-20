@@ -30,7 +30,7 @@ This document details the technologies used, development setup, technical constr
 
 ## Dependencies
 
-- Python packages (see requirements.txt)
+- Python packages (see pyproject.toml)
 - devenv
 - CLI/voice libraries
 

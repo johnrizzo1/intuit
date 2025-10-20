@@ -23,25 +23,27 @@ dependencies = [
     "aiohttp>=3.11.18",
     "SpeechRecognition>=3.10.1",
     "gTTS>=2.5.1",
-    "numpy>=1.24.0",
+    "numpy>=1.24.0,<2.2",
     "sounddevice>=0.4.6",
     "openai-whisper>=20231117",
     "prompt-toolkit>=3.0.0",
-    "langchain>=0.1.0",
+    "langchain>=0.1.0,<1.0.0",
     "langchain-openai>=0.0.5",
+    "langgraph>=0.1.0,<1.0.0",
     "python-dotenv>=1.0.0",
     "pypdf2>=3.0.0",
+    "requests>=2.31.0",
     "soundfile>=0.13.1",
     "pytest>=8.3.5",
-    "pyperclip>=1.8.2", # Add pyperclip dependency
-    "fastmcp>=2.3.0", # For MCP Server
-    "mcp-client>=0.2.0",
+    "pyperclip>=1.8.2",  # Add pyperclip dependency
+    "fastmcp>=2.3.0",  # For MCP Server
     "mcp>=1.8.0",
     "pyautogui>=0.9.54",
     "pillow>=11.2.1",
     "langmem>=0.0.25",
     "pytest-asyncio>=0.26.0",
     "yaspin>=3.1.0",
+    "langchain-community>=0.0.20",
 ]
 
 [project.scripts]
@@ -55,6 +57,13 @@ dev = [
     "black>=24.1.0",
     "ruff>=0.2.0",
     "mypy>=1.8.0",
+]
+gpu = [
+    "torch>=2.0.0",
+    "torchaudio>=2.0.0",
+]
+tts-coqui = [
+    "TTS>=0.22.0; python_version < '3.13'",
 ]
 
 [tool.hatch.build.targets.wheel]

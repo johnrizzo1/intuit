@@ -54,7 +54,7 @@ class MemoryAddTool(BaseTool):
                 metadata={"importance": importance, "tags": tags}
             )
             logger.info(f"[MEMORY TOOL] Successfully added memory with ID: {memory_id}")
-            return f"I've remembered that {content} (Memory ID: {memory_id})"
+            return "Memory saved"
         except Exception as e:
             logger.error(f"[MEMORY TOOL] Error adding memory: {e}", exc_info=True)
             return f"I couldn't remember that information: {str(e)}"
@@ -157,10 +157,10 @@ class MemoryDeleteTool(BaseTool):
             
             if not success:
                 logger.info(f"[MEMORY TOOL] Failed to delete memory: {memory_id}")
-                return f"I couldn't delete the memory with ID {memory_id}."
+                return "Failed to delete memory"
             
             logger.info(f"[MEMORY TOOL] Successfully deleted memory: {memory_id}")
-            return f"I've forgotten the memory with ID {memory_id}."
+            return "Memory deleted"
         except Exception as e:
             logger.error(f"[MEMORY TOOL] Error deleting memory: {e}", exc_info=True)
             return f"I couldn't delete that memory: {str(e)}"

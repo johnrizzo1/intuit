@@ -78,14 +78,14 @@ Example Session:
 Configuration:
 --------------
 You can customize the voice interface with these options:
-    --model: Choose the AI model (default: gpt-4o-mini)
+    --model: Choose the AI model (default: llama3.2:3b)
     --voice-language: Set voice language (default: en)
     --slow/--no-slow: Enable slow speech
     --index/--no-index: Enable filesystem indexing
     --weather/--no-weather: Enable weather information
 
 Full example:
-    uv run intuit voice --tui --model gpt-4o --voice-language en --index
+    uv run intuit voice --tui --model llama3.2:3b --voice-language en --index
 
 For more information, see the README.md file.
 """

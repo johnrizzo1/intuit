@@ -21,7 +21,7 @@ logging.getLogger("chromadb.telemetry.product.posthog").setLevel(logging.CRITICA
 class ChromaMemoryStore:
     """Memory store implementation for Intuit using ChromaDB for persistence."""
     
-    def __init__(self, persist_directory: str = ".memory", collection_name: str = "memories", model: str = "openai:text-embedding-3-small"):
+    def __init__(self, persist_directory: str = ".memory", collection_name: str = "memories", model: str = "ollama:nomic-embed-text"):
         """
         Initialize the memory store.
         

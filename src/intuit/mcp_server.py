@@ -47,11 +47,11 @@ except Exception as e:
 # Initialize memory store and manager for MCP server
 try:
     # Use a default model for the memory store
-    default_model = os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini")
+    default_model = os.getenv("OPENAI_MODEL_NAME", "llama3.2:3b")
     memory_store = ChromaMemoryStore(model=default_model)
     logger.info("Memory store initialized for MCP server")
     # Initialize the memory manager with a default model
-    default_model = os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini")
+    default_model = os.getenv("OPENAI_MODEL_NAME", "llama3.2:3b")
     memory_manager = IntuitMemoryManager(store=memory_store, model=default_model)
     logger.info(f"Memory manager initialized for MCP server with model: {default_model}")
 except Exception as e:
@@ -403,11 +403,11 @@ def memory_add(content: str, importance: int = 5, tags: list[str] = None) -> str
     if memory_store:
         try:
             tags = tags or []
-            memory_id = asyncio.run(memory_store.add_memory(
+            asyncio.run(memory_store.add_memory(
                 content=content,
                 metadata={"importance": importance, "tags": tags}
             ))
-            return f"Memory added with ID: {memory_id}"
+            return "Memory saved"
         except Exception as e:
             logger.error(f"Error adding memory: {e}")
             return f"Error adding memory: {str(e)}"
@@ -480,8 +480,8 @@ def memory_delete(memory_id: str) -> str:
         try:
             success = asyncio.run(memory_store.delete_memory(memory_id))
             if success:
-                return f"Memory with ID {memory_id} deleted."
-            return f"Failed to delete memory with ID {memory_id}."
+                return "Memory deleted"
+            return "Failed to delete memory"
         except Exception as e:
             logger.error(f"Error deleting memory: {e}")
             return f"Error deleting memory: {str(e)}"
@@ -500,8 +500,8 @@ def memory_clear() -> str:
         try:
             success = asyncio.run(memory_store.clear_memories())
             if success:
-                return "All memories cleared."
-            return "Failed to clear memories."
+                return "Memories cleared"
+            return "Failed to clear memories"
         except Exception as e:
             logger.error(f"Error clearing memories: {e}")
             return f"Error clearing memories: {str(e)}"

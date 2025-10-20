@@ -12,9 +12,12 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Optional, Callable, List
-import speech_recognition as sr
 import sounddevice as sd
 import numpy as np
+
+from .audio.stt_base import STTProvider
+from .audio.stt_factory import STTFactory
+from .config.audio_config import AudioConfig
 
 logger = logging.getLogger(__name__)
 
@@ -48,27 +51,30 @@ class DictationMode:
     
     def __init__(
         self,
-        recognizer: sr.Recognizer,
+        stt_provider: Optional[STTProvider] = None,
         silence_threshold: float = 30.0,
         sample_rate: int = 16000,
         on_transcription: Optional[Callable[[str], None]] = None,
         on_state_change: Optional[Callable[[DictationState], None]] = None,
+        audio_config: Optional[AudioConfig] = None,
     ):
         """
         Initialize dictation mode.
         
         Args:
-            recognizer: Speech recognition instance
+            stt_provider: STT provider instance (creates from config if None)
             silence_threshold: Seconds of silence before pause (default: 30)
             sample_rate: Audio sample rate
             on_transcription: Callback for new transcription text
             on_state_change: Callback for state changes
+            audio_config: Optional audio configuration
         """
-        self.recognizer = recognizer
-        # Configure recognizer for dictation (longer pauses allowed)
-        self.recognizer.pause_threshold = 2.0  # 2 seconds of silence
-        self.recognizer.energy_threshold = 300  # Lower for quieter speech
-        self.recognizer.dynamic_energy_threshold = True
+        # Initialize STT provider
+        if stt_provider is None:
+            config = audio_config or AudioConfig.from_env()
+            self.stt_provider = STTFactory.create(config.stt)
+        else:
+            self.stt_provider = stt_provider
         
         self.silence_threshold = silence_threshold
         self.sample_rate = sample_rate
@@ -87,6 +93,11 @@ class DictationMode:
         self.audio_queue = queue.Queue()
         self.channels = 1
         self.dtype = np.float32
+        
+        logger.info(
+            f"Initialized dictation with STT provider: "
+            f"{self.stt_provider.__class__.__name__}"
+        )
     
     def _set_state(self, new_state: DictationState) -> None:
         """Update state and notify callback."""
@@ -211,7 +222,9 @@ class DictationMode:
             audio_data = []
             recording_duration = 3.0  # Record for 3 seconds at a time
             
-            logger.debug(f"Starting audio recording for {recording_duration}s")
+            logger.debug(
+                f"Starting audio recording for {recording_duration}s"
+            )
             
             with sd.InputStream(
                 samplerate=self.sample_rate,
@@ -237,33 +250,19 @@ class DictationMode:
             if not audio_data:
                 return None
             
-            # Convert to format expected by speech_recognition
-            audio_data = np.concatenate(audio_data)
-            audio_data = (audio_data * 32767).astype(np.int16)
+            # Convert to numpy array and normalize to int16
+            audio_array = np.concatenate(audio_data)
+            audio_array = (audio_array * 32767).astype(np.int16)
             
-            # Create AudioData object
-            audio = sr.AudioData(
-                audio_data.tobytes(),
-                sample_rate=self.sample_rate,
-                sample_width=2
-            )
+            # Transcribe using STT provider
+            text = await self.stt_provider.transcribe(audio_array)
             
-            # Transcribe (run in executor to avoid blocking)
-            loop = asyncio.get_event_loop()
-            text = await loop.run_in_executor(
-                None,
-                self.recognizer.recognize_google,
-                audio
-            )
-            self.last_audio_time = asyncio.get_event_loop().time()
-            return text
+            if text:
+                self.last_audio_time = asyncio.get_event_loop().time()
+                return text
+            else:
+                return None
             
-        except sr.UnknownValueError:
-            # No speech detected
-            return None
-        except sr.RequestError as e:
-            logger.error(f"Speech recognition error: {e}")
-            return None
         except Exception as e:
             logger.error(f"Error in listen_once: {e}")
             return None

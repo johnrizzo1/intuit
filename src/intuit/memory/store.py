@@ -6,13 +6,15 @@ import os
 import logging
 from langmem import create_memory_store_manager
 from langgraph.store.memory import InMemoryStore
+from langchain_community.chat_models import ChatOllama
+from langchain_openai import ChatOpenAI
 
 logger = logging.getLogger(__name__)
 
 class IntuitMemoryStore:
     """Memory store implementation for Intuit using LangMem."""
     
-    def __init__(self, persist_directory: str = ".memory", namespace: str = "memories", model: str = "gpt-4o-mini"):
+    def __init__(self, persist_directory: str = ".memory", namespace: str = "memories", model: str = "llama3.2:3b"):
         """
         Initialize the memory store.
         
@@ -31,22 +33,37 @@ class IntuitMemoryStore:
             logger.warning(f"Redis URL found ({os.getenv('REDIS_URL')}), but Redis is not currently supported. Using in-memory storage instead.")
             self.store = InMemoryStore(
                 index={
-                    "dims": 1536,
-                    "embed": os.getenv("EMBEDDING_MODEL", "openai:text-embedding-3-small"),
+                    "dims": 384,
+                    "embed": os.getenv("EMBEDDING_MODEL", "ollama:nomic-embed-text"),
                 }
             )
         else:
             logger.info(f"Using in-memory storage backend with persist directory: {persist_directory}")
             self.store = InMemoryStore(
                 index={
-                    "dims": 1536,
-                    "embed": os.getenv("EMBEDDING_MODEL", "openai:text-embedding-3-small"),
+                    "dims": 384,
+                    "embed": os.getenv("EMBEDDING_MODEL", "ollama:nomic-embed-text"),
                 }
             )
         
         # Initialize LangMem's memory store manager with our storage backend
-        self.memory = create_memory_store_manager(model, namespace=(self.namespace,), store=self.store)
-        logger.info("Memory store initialized successfully")
+        # LangMem requires a ChatModel instance, not a string
+        if model.startswith(('gpt-', 'text-')) or '/' in model and 'gpt' in model.lower():
+            # OpenAI model
+            chat_model = ChatOpenAI(
+                model=model.split('/')[-1] if '/' in model else model,
+                temperature=0.7
+            )
+        else:
+            # Ollama model (default)
+            chat_model = ChatOllama(
+                model=model.split('/')[-1] if '/' in model else model,
+                base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+                temperature=0.7
+            )
+            
+        self.memory = create_memory_store_manager(chat_model, namespace=(self.namespace,), store=self.store)
+        logger.info(f"Memory store initialized successfully with model: {model}")
     
     async def add_memory(self, content: str, metadata: Optional[Dict[str, Any]] = None) -> str:
         """

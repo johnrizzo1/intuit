@@ -2,11 +2,10 @@
 Voice interface for Intuit.
 """
 import asyncio
-import speech_recognition as sr
-from gtts import gTTS
 import tempfile
 import os
 import logging
+import wave
 from typing import Optional
 import sounddevice as sd
 import numpy as np
@@ -14,8 +13,24 @@ import queue
 
 from ..agent import Agent
 from ..logging_config import PipelineLogger, get_pipeline_logger
+from ..audio.stt_factory import STTFactory
+from ..audio.tts_factory import TTSFactory
+from ..config.audio_config import AudioConfig
 
 logger = logging.getLogger(__name__)
+
+
+def get_audio_duration(audio_file: str) -> Optional[float]:
+    """Get the duration of an audio file in seconds."""
+    try:
+        with wave.open(audio_file, 'rb') as wf:
+            frames = wf.getnframes()
+            rate = wf.getframerate()
+            duration = frames / float(rate)
+            return duration
+    except Exception as e:
+        logger.warning(f"Could not get audio duration: {e}")
+        return None
 
 
 class VoiceInterface:
@@ -24,17 +39,34 @@ class VoiceInterface:
     def __init__(
         self,
         agent: Agent,
-        pipeline_logger: Optional[PipelineLogger] = None
+        pipeline_logger: Optional[PipelineLogger] = None,
+        audio_config: Optional[AudioConfig] = None
     ):
-        """Initialize the voice interface."""
+        """Initialize the voice interface.
+        
+        Args:
+            agent: The agent to process queries
+            pipeline_logger: Optional pipeline logger for tracking
+            audio_config: Optional audio configuration
+                (loads from env if not provided)
+        """
         self.agent = agent
-        self.recognizer = sr.Recognizer()
         self.running = True
         self.audio_queue = queue.Queue()
         self.sample_rate = 16000
         self.channels = 1
         self.dtype = np.float32
         self.pipeline_logger = pipeline_logger or get_pipeline_logger()
+        
+        # Initialize audio configuration and providers
+        self.audio_config = audio_config or AudioConfig.from_env()
+        self.stt_provider = STTFactory.create(self.audio_config.stt)
+        self.tts_provider = TTSFactory.create(self.audio_config.tts)
+        
+        stt_name = self.audio_config.stt.provider
+        tts_name = self.audio_config.tts.provider
+        logger.info(f"Initialized STT provider: {stt_name}")
+        logger.info(f"Initialized TTS provider: {tts_name}")
     
     def _audio_callback(self, indata, frames, time, status):
         """Callback for audio input stream."""
@@ -43,7 +75,7 @@ class VoiceInterface:
         self.audio_queue.put(indata.copy())
     
     async def _listen(self) -> Optional[str]:
-        """Listen for user input."""
+        """Listen for user input using configured STT provider."""
         session_id = self.pipeline_logger.start_session()
         self.pipeline_logger.log_stt_start(session_id)
         logger.info("Listening for voice input...")
@@ -68,30 +100,28 @@ class VoiceInterface:
             self.pipeline_logger.log_stt_error("No audio data", session_id)
             return None
         
-        # Convert to format expected by speech_recognition
-        audio_data = np.concatenate(audio_data)
-        audio_data = (audio_data * 32767).astype(np.int16)
-        
-        # Create AudioData object
-        audio = sr.AudioData(
-            audio_data.tobytes(),
-            sample_rate=self.sample_rate,
-            sample_width=2
-        )
+        # Convert to numpy array and normalize to int16
+        audio_array = np.concatenate(audio_data)
+        audio_array = (audio_array * 32767).astype(np.int16)
         
         try:
-            text = self.recognizer.recognize_google(audio)
-            logger.info(f"Transcribed: {text}")
-            self.pipeline_logger.log_stt_complete(text, session_id)
-            return text
-        except sr.UnknownValueError:
-            logger.warning("Could not understand audio")
-            self.pipeline_logger.log_stt_error(
-                "Speech not recognized", session_id
+            # Use STT provider to transcribe
+            text = await self.stt_provider.transcribe(
+                audio_array, self.sample_rate
             )
-            return None
-        except sr.RequestError as e:
-            error_msg = f"Speech recognition service error: {e}"
+            
+            if text:
+                logger.info(f"Transcribed: {text}")
+                self.pipeline_logger.log_stt_complete(text, session_id)
+                return text
+            else:
+                logger.warning("No speech detected in audio")
+                self.pipeline_logger.log_stt_error(
+                    "No speech detected", session_id
+                )
+                return None
+        except Exception as e:
+            error_msg = f"Speech recognition error: {e}"
             logger.error(error_msg)
             self.pipeline_logger.log_stt_error(error_msg, session_id)
             return None
@@ -99,20 +129,26 @@ class VoiceInterface:
     async def _speak(
         self, text: str, session_id: Optional[str] = None
     ) -> None:
-        """Convert text to speech and play it."""
+        """Convert text to speech and play it using TTS provider."""
         if session_id:
             self.pipeline_logger.log_tts_start(text, session_id)
         logger.info(f"Speaking: {text[:50]}...")
         
         try:
+            # Create temp file for audio
             with tempfile.NamedTemporaryFile(
-                delete=False, suffix='.mp3'
+                delete=False, suffix='.wav'
             ) as fp:
                 temp_file = fp.name
             
-            # Generate TTS audio file
-            tts = gTTS(text=text, lang='en')
-            tts.save(temp_file)
+            # Synthesize speech using TTS provider
+            await self.tts_provider.synthesize(
+                text,
+                output_path=temp_file
+            )
+            
+            # Get audio duration before playing
+            audio_duration = get_audio_duration(temp_file)
             
             # Play audio asynchronously (non-blocking)
             process = await asyncio.create_subprocess_exec(
@@ -123,10 +159,15 @@ class VoiceInterface:
             await process.wait()
             
             # Clean up temp file
-            os.unlink(temp_file)
+            try:
+                os.unlink(temp_file)
+            except Exception as e:
+                logger.warning(f"Failed to delete temp file: {e}")
             
             if session_id:
-                self.pipeline_logger.log_tts_complete(session_id)
+                self.pipeline_logger.log_tts_complete(
+                    session_id, audio_duration=audio_duration
+                )
             logger.info("Speech playback complete")
         except Exception as e:
             error_msg = f"TTS error: {e}"

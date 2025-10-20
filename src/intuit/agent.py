@@ -28,13 +28,15 @@ from .tools.weather import WeatherTool # Import WeatherTool
 from .tools.hackernews import HackerNewsTool # Import HackerNewsTool
 from .reminders_service import ReminderService # Import ReminderService
 from .voice import VoiceOutput
+from .llm import get_llm_provider
+from .config.audio_config import LLMConfig
 from mcp import ClientSession as MCPClient  # Use ClientSession as MCPClient
 # Set up logging
 logger = logging.getLogger(__name__)
 
 class AgentConfig(BaseModel):
     """Configuration for the Intuit agent."""
-    model_name: str = Field(default=os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini"))
+    model_name: str = Field(default=os.getenv("OPENAI_MODEL_NAME", "llama3.2:3b"))
     temperature: float = Field(default=0.7)
     max_tokens: int = Field(default=2000)
     streaming: bool = Field(default=True)
@@ -80,30 +82,27 @@ class Agent:
         self.memory_manager.start()
         logger.info("Background memory manager started")
 
-        # Get OpenAI configuration from environment or config
-        openai_api_base = (self.config.openai_api_base or os.getenv("OPENAI_API_BASE"))
-        if openai_api_base:
-            openai_api_base = openai_api_base.strip()
-        openai_api_type = self.config.openai_api_type or os.getenv("OPENAI_API_TYPE")
-        openai_api_version = self.config.openai_api_version or os.getenv("OPENAI_API_VERSION")
-
-        # Configure OpenAI client
-        openai_kwargs = {
-            "model_name": self.config.model_name,
-            "temperature": self.config.temperature,
-            "max_tokens": self.config.max_tokens,
-            "streaming": self.config.streaming,
-        }
-
-        # Add provider-specific configuration
-        if openai_api_base:
-            openai_kwargs["openai_api_base"] = openai_api_base
-        if openai_api_type:
-            openai_kwargs["openai_api_type"] = openai_api_type
-        if openai_api_version:
-            openai_kwargs["openai_api_version"] = openai_api_version
-
-        self.llm = ChatOpenAI(**openai_kwargs)
+        # Initialize LLM using factory with hardware acceleration support
+        llm_config = LLMConfig(
+            provider=os.getenv("LLM_PROVIDER", "openai"),
+            model=self.config.model_name,
+            temperature=self.config.temperature,
+            max_tokens=self.config.max_tokens,
+            base_url=(
+                self.config.openai_api_base
+                or os.getenv("OPENAI_API_BASE")
+                or ("http://localhost:11434" if os.getenv("LLM_PROVIDER") == "ollama" else None)
+            ),
+        )
+        
+        # Get LLM provider (with automatic fallback)
+        llm_provider = get_llm_provider(llm_config)
+        self.llm = llm_provider.get_model()
+        
+        logger.info(
+            f"LLM initialized: {llm_provider.model_name} "
+            f"(supports functions: {llm_provider.supports_functions})"
+        )
 
         # Add weather and hackernews tools
         self.weather_tool = WeatherTool()
@@ -821,7 +820,15 @@ Use these memory tools to:
 - Maintain context across multiple sessions
 - Personalize your responses based on what you've learned about the user
 
-Always be concise and clear in your responses.'''),
+CRITICAL RESPONSE GUIDELINES:
+1. When you use a tool, DO NOT repeat the tool call details (name, arguments, etc.) in your response
+2. DO NOT show JSON or technical details to the user
+3. After using a tool, respond naturally based on the result
+4. For memory operations (add_memory, delete_memory, etc.), keep responses brief and conversational
+5. Example: If add_memory returns "Memory saved", respond with something like "Got it, I'll remember that" or "Noted"
+6. DO NOT say things like "I called the add_memory tool with arguments..." or show the tool result verbatim
+
+Always be concise, natural, and conversational in your responses.'''),
             MessagesPlaceholder(variable_name="chat_history"),
             ("human", "{input}"),
             MessagesPlaceholder(variable_name="agent_scratchpad"),
@@ -1583,26 +1590,18 @@ Always be concise and clear in your responses.'''),
 
             logger.info("Agent executor result: %s", result)
 
-            # Extract the output and intermediate steps
+            # Extract the output - use the LLM's generated response
             output = result.get("output", "")
+            
+            # Log intermediate steps for debugging but don't include in output
             intermediate_steps = result.get("intermediate_steps", [])
-
-            # If we have intermediate steps, format them into the response
             if intermediate_steps:
-                formatted_steps = []
+                logger.debug(f"Intermediate steps executed: {len(intermediate_steps)}")
                 for step in intermediate_steps:
                     if isinstance(step, tuple) and len(step) == 2:
                         action, observation = step
-                        if isinstance(action, dict) and "name" in action and "arguments" in action:
-                            tool_name = action["name"]
-                            tool_args = action["arguments"]
-                            formatted_steps.append(f"Tool: {tool_name}")
-                            formatted_steps.append(f"Arguments: {tool_args}")
-                            formatted_steps.append(f"Result: {observation}")
-                            formatted_steps.append("---")
-
-                if formatted_steps:
-                    output = "\n".join(formatted_steps)
+                        if isinstance(action, dict) and "name" in action:
+                            logger.debug(f"Tool: {action['name']}, Result: {observation}")
 
             # Update chat history
             self.chat_history.append({"role": "user", "content": user_input})

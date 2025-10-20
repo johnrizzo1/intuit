@@ -3,7 +3,7 @@ from intuit.memory.chroma_store import ChromaMemoryStore
 
 async def main():
     # Initialize memory store
-    memory_store = ChromaMemoryStore(model="openai:text-embedding-3-small")
+    memory_store = ChromaMemoryStore(model="ollama:nomic-embed-text")
     print("Memory store initialized")
     
     # Add a memory

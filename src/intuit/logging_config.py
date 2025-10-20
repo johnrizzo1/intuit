@@ -5,24 +5,30 @@ This module provides centralized logging configuration with support for:
 - File-based logging (output.log)
 - Debug mode for pipeline tracking
 - Stage-based logging for STT -> Agent -> TTS pipeline
+- Performance timing for each pipeline stage
 """
 import logging
 import sys
+import time
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict
 
 
 class PipelineLogger:
-    """Logger for tracking the voice processing pipeline stages."""
+    """Logger for tracking the voice processing pipeline stages with timing."""
     
     def __init__(self, logger: logging.Logger):
         self.logger = logger
         self.current_session_id: Optional[str] = None
+        self.timings: Dict[str, Dict[str, float]] = {}
     
     def start_session(self) -> str:
         """Start a new pipeline session and return session ID."""
         self.current_session_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        self.timings[self.current_session_id] = {
+            'session_start': time.time()
+        }
         self.logger.info(
             f"=== Pipeline Session Started: {self.current_session_id} ==="
         )
@@ -31,21 +37,41 @@ class PipelineLogger:
     def log_stt_start(self, session_id: Optional[str] = None):
         """Log the start of Speech-to-Text processing."""
         sid = session_id or self.current_session_id
+        if sid not in self.timings:
+            self.timings[sid] = {}
+        self.timings[sid]['stt_start'] = time.time()
         self.logger.info(f"[{sid}] STT: Starting speech recognition...")
     
     def log_stt_complete(self, text: str, session_id: Optional[str] = None):
         """Log successful STT completion with transcribed text."""
         sid = session_id or self.current_session_id
-        self.logger.info(f"[{sid}] STT: Complete - Transcribed: '{text}'")
+        if sid in self.timings and 'stt_start' in self.timings[sid]:
+            duration = time.time() - self.timings[sid]['stt_start']
+            self.timings[sid]['stt_duration'] = duration
+            self.logger.info(
+                f"[{sid}] STT: Complete ({duration:.2f}s) - "
+                f"Transcribed: '{text}'"
+            )
+        else:
+            self.logger.info(f"[{sid}] STT: Complete - Transcribed: '{text}'")
     
     def log_stt_error(self, error: str, session_id: Optional[str] = None):
         """Log STT error."""
         sid = session_id or self.current_session_id
-        self.logger.error(f"[{sid}] STT: Error - {error}")
+        if sid in self.timings and 'stt_start' in self.timings[sid]:
+            duration = time.time() - self.timings[sid]['stt_start']
+            self.logger.error(
+                f"[{sid}] STT: Error ({duration:.2f}s) - {error}"
+            )
+        else:
+            self.logger.error(f"[{sid}] STT: Error - {error}")
     
     def log_agent_start(self, query: str, session_id: Optional[str] = None):
         """Log the start of agent processing."""
         sid = session_id or self.current_session_id
+        if sid not in self.timings:
+            self.timings[sid] = {}
+        self.timings[sid]['agent_start'] = time.time()
         self.logger.info(f"[{sid}] AGENT: Processing query: '{query}'")
     
     def log_agent_complete(
@@ -54,39 +80,111 @@ class PipelineLogger:
         """Log successful agent completion with response."""
         sid = session_id or self.current_session_id
         response_preview = response[:100] if len(response) > 100 else response
-        self.logger.info(
-            f"[{sid}] AGENT: Complete - Response: '{response_preview}...'"
-        )
+        
+        if sid in self.timings and 'agent_start' in self.timings[sid]:
+            duration = time.time() - self.timings[sid]['agent_start']
+            self.timings[sid]['agent_duration'] = duration
+            self.logger.info(
+                f"[{sid}] AGENT: Complete ({duration:.2f}s) - "
+                f"Response: '{response_preview}...'"
+            )
+        else:
+            self.logger.info(
+                f"[{sid}] AGENT: Complete - Response: '{response_preview}...'"
+            )
     
     def log_agent_error(self, error: str, session_id: Optional[str] = None):
         """Log agent error."""
         sid = session_id or self.current_session_id
-        self.logger.error(f"[{sid}] AGENT: Error - {error}")
+        if sid in self.timings and 'agent_start' in self.timings[sid]:
+            duration = time.time() - self.timings[sid]['agent_start']
+            self.logger.error(
+                f"[{sid}] AGENT: Error ({duration:.2f}s) - {error}"
+            )
+        else:
+            self.logger.error(f"[{sid}] AGENT: Error - {error}")
     
     def log_tts_start(self, text: str, session_id: Optional[str] = None):
         """Log the start of Text-to-Speech processing."""
         sid = session_id or self.current_session_id
+        if sid not in self.timings:
+            self.timings[sid] = {}
+        self.timings[sid]['tts_start'] = time.time()
         text_preview = text[:50] if len(text) > 50 else text
         self.logger.info(
             f"[{sid}] TTS: Starting speech synthesis for: '{text_preview}...'"
         )
     
-    def log_tts_complete(self, session_id: Optional[str] = None):
+    def log_tts_complete(
+        self, session_id: Optional[str] = None, audio_duration: Optional[float] = None
+    ):
         """Log successful TTS completion."""
         sid = session_id or self.current_session_id
-        self.logger.info(
-            f"[{sid}] TTS: Complete - Audio playback finished"
-        )
+        
+        if sid in self.timings and 'tts_start' in self.timings[sid]:
+            duration = time.time() - self.timings[sid]['tts_start']
+            self.timings[sid]['tts_duration'] = duration
+            
+            if audio_duration:
+                self.timings[sid]['audio_duration'] = audio_duration
+                self.logger.info(
+                    f"[{sid}] TTS: Complete ({duration:.2f}s) - "
+                    f"Audio duration: {audio_duration:.2f}s - "
+                    f"Audio playback finished"
+                )
+            else:
+                self.logger.info(
+                    f"[{sid}] TTS: Complete ({duration:.2f}s) - "
+                    f"Audio playback finished"
+                )
+        else:
+            self.logger.info(
+                f"[{sid}] TTS: Complete - Audio playback finished"
+            )
     
     def log_tts_error(self, error: str, session_id: Optional[str] = None):
         """Log TTS error."""
         sid = session_id or self.current_session_id
-        self.logger.error(f"[{sid}] TTS: Error - {error}")
+        if sid in self.timings and 'tts_start' in self.timings[sid]:
+            duration = time.time() - self.timings[sid]['tts_start']
+            self.logger.error(
+                f"[{sid}] TTS: Error ({duration:.2f}s) - {error}"
+            )
+        else:
+            self.logger.error(f"[{sid}] TTS: Error - {error}")
     
     def end_session(self, session_id: Optional[str] = None):
-        """End the current pipeline session."""
+        """End the current pipeline session and log summary."""
         sid = session_id or self.current_session_id
-        self.logger.info(f"=== Pipeline Session Ended: {sid} ===\n")
+        
+        if sid in self.timings:
+            total_duration = time.time() - self.timings[sid].get('session_start', time.time())
+            
+            # Build timing summary
+            summary_parts = [f"Total: {total_duration:.2f}s"]
+            
+            if 'stt_duration' in self.timings[sid]:
+                summary_parts.append(f"STT: {self.timings[sid]['stt_duration']:.2f}s")
+            
+            if 'agent_duration' in self.timings[sid]:
+                summary_parts.append(f"Agent: {self.timings[sid]['agent_duration']:.2f}s")
+            
+            if 'tts_duration' in self.timings[sid]:
+                summary_parts.append(f"TTS: {self.timings[sid]['tts_duration']:.2f}s")
+            
+            if 'audio_duration' in self.timings[sid]:
+                summary_parts.append(f"Audio: {self.timings[sid]['audio_duration']:.2f}s")
+            
+            self.logger.info(
+                f"=== Pipeline Session Ended: {sid} === "
+                f"[{' | '.join(summary_parts)}]\n"
+            )
+            
+            # Clean up old timing data
+            del self.timings[sid]
+        else:
+            self.logger.info(f"=== Pipeline Session Ended: {sid} ===\n")
+        
         self.current_session_id = None
 
 
@@ -138,9 +236,57 @@ def setup_logging(
     
     # Redirect stdout and stderr to log file if console output is disabled
     if not console_output:
+        class FileWrapper:
+            """Wrapper for file handle that provides all necessary attributes."""
+            def __init__(self, file_handle):
+                self._file = file_handle
+                self.closed = False
+                self.encoding = getattr(file_handle, 'encoding', 'utf-8')
+                self.mode = getattr(file_handle, 'mode', 'a')
+                self.name = getattr(file_handle, 'name', '<stdout>')
+            
+            def write(self, text):
+                if not self.closed:
+                    try:
+                        self._file.write(text)
+                        self._file.flush()
+                    except (ValueError, OSError):
+                        pass
+                return len(text) if text else 0
+            
+            def flush(self):
+                if not self.closed:
+                    try:
+                        self._file.flush()
+                    except (ValueError, OSError):
+                        pass
+            
+            def close(self):
+                if not self.closed:
+                    try:
+                        self._file.close()
+                    except (ValueError, OSError):
+                        pass
+                    self.closed = True
+            
+            def fileno(self):
+                """Return file descriptor."""
+                try:
+                    return self._file.fileno()
+                except (ValueError, OSError, AttributeError):
+                    return -1
+            
+            def isatty(self):
+                """Check if this is a TTY."""
+                return False
+            
+            def __getattr__(self, name):
+                """Proxy any other attributes to the underlying file."""
+                return getattr(self._file, name)
+        
         log_file_handle = open(log_file, 'a', encoding='utf-8')
-        sys.stdout = log_file_handle
-        sys.stderr = log_file_handle
+        sys.stdout = FileWrapper(log_file_handle)
+        sys.stderr = FileWrapper(log_file_handle)
     
     # Create formatters
     detailed_formatter = logging.Formatter(

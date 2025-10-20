@@ -405,7 +405,7 @@ def clear(
 
 
 async def create_agent(
-    model: str = os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini"),
+    model: str = os.getenv("OPENAI_MODEL_NAME", "llama3.2:3b"),
     temperature: float = 0.7,
     index_filesystem: bool = False,
     filesystem_path: Optional[Path] = None,
@@ -1052,7 +1052,7 @@ def list_mcp_server_tools():
 def chat(
     query: Optional[str] = typer.Argument(None, help="Query to process"),
     model: str = typer.Option(
-        os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini"),
+        os.getenv("OPENAI_MODEL_NAME", "llama3.2:3b"),
         help="Model to use (can also be set via OPENAI_MODEL_NAME env var)",
     ),
     temperature: float = typer.Option(0.7, help="Model temperature"),
@@ -1109,7 +1109,7 @@ def chat(
 @app.command()
 def voice(
     model: str = typer.Option(
-        os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini"),
+        os.getenv("OPENAI_MODEL_NAME", "llama3.2:3b"),
         help="Model to use (can also be set via OPENAI_MODEL_NAME env var)",
     ),
     temperature: float = typer.Option(0.7, help="Model temperature"),

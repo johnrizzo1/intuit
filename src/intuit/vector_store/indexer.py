@@ -59,7 +59,7 @@ class VectorStore:
         # Initialize embedding function
         self.embedding_function = embedding_functions.OpenAIEmbeddingFunction(
             api_key=os.getenv("OPENAI_API_KEY"),
-            model_name="text-embedding-3-small"
+            model_name=os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
         )
         
         # Get or create collection
