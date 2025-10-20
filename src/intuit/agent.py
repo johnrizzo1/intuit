@@ -1266,6 +1266,42 @@ Always be concise, natural, and conversational in your responses.'''),
             return_intermediate_steps=True,
         )
 
+    def _should_speak_output(self, output: str, user_input: str) -> bool:
+        """
+        Determine if the output should be spoken aloud.
+        
+        Args:
+            output: The agent's response text
+            user_input: The original user input
+            
+        Returns:
+            True if output should be spoken, False otherwise
+        """
+        # Count newlines to detect long lists
+        newline_count = output.count('\n')
+        
+        # Skip speaking if output has many newlines (likely a list)
+        if newline_count > 10:
+            logger.info(f"Skipping speech: output has {newline_count} lines")
+            return False
+        
+        # Skip speaking for specific patterns
+        skip_patterns = [
+            'Top Stories from Hacker News',
+            'New Stories from Hacker News',
+            'Best Stories from Hacker News',
+            'Found memories:',
+            'Search Results for',
+            'indexed files:',
+        ]
+        
+        for pattern in skip_patterns:
+            if pattern in output:
+                logger.info(f"Skipping speech: matched pattern '{pattern}'")
+                return False
+        
+        return True
+
     async def process_input(self, user_input: str) -> str:
         """
         Process user input and return a response.
@@ -1612,8 +1648,13 @@ Always be concise, natural, and conversational in your responses.'''),
             logger.info("Conversation processed by memory manager")
 
             # Speak the response if voice is enabled
+            # Skip speaking for long lists (e.g., Hacker News results, file listings)
             if self.voice:
-                await self.voice.speak(output)
+                should_speak = self._should_speak_output(output, user_input)
+                if should_speak:
+                    await self.voice.speak(output)
+                else:
+                    logger.info("Skipping voice output for long list response")
 
             return output
         except Exception as e:

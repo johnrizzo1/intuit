@@ -319,12 +319,7 @@ def take_screenshot() -> MCPImage:
         # Consider returning an error object or raising an MCP-specific exception
         raise
 
-# Hacker News tool
-@mcp_server.tool()
-def hackernews_tool() -> HackerNewsTool:
-    """Hacker News information tool"""
-    return HackerNewsTool()
-
+# Hacker News tools
 @mcp_server.tool()
 def hackernews_top(limit: int = 10) -> str:
     """
@@ -384,6 +379,25 @@ def hackernews_story(item_id: int) -> str:
     logger.info(f"MCP: Getting Hacker News story with ID: {item_id}")
     hackernews_tool = HackerNewsTool()
     return str(hackernews_tool.get_story(item_id))
+
+
+@mcp_server.tool()
+def hackernews_open(story_number: int) -> str:
+    """
+    Open a Hacker News story in the default web browser.
+    
+    Args:
+        story_number: Story number (1-based index) from the most
+            recently fetched stories
+        
+    Returns:
+        Confirmation message
+    """
+    logger.info(
+        f"MCP: Opening Hacker News story #{story_number} in browser"
+    )
+    hackernews_tool = HackerNewsTool()
+    return str(hackernews_tool.open_story(story_number))
 
 # Memory tools
 @mcp_server.tool()

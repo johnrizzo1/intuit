@@ -114,12 +114,16 @@ class StatusBar(Static):
     speaking = reactive(False)
     dictation_mode = reactive(False)
     dictation_state = reactive("idle")
+    privacy_mode = reactive(False)
     
     def render(self) -> Panel:
         """Render the status bar."""
         status_icons = []
         
-        if self.dictation_mode:
+        # Privacy mode takes precedence
+        if self.privacy_mode:
+            status_icons.append("[red]🔒 Privacy Mode[/]")
+        elif self.dictation_mode:
             # Dictation mode indicators
             if self.dictation_state == "listening":
                 status_icons.append("[green]📝 Dictating[/]")
@@ -140,7 +144,8 @@ class StatusBar(Static):
             status_icons.append("[dim]⏸️  Idle[/]")
         
         content = " | ".join(status_icons) + f"\n{self.status}"
-        return Panel(content, title="Status", border_style="magenta")
+        border_color = "red" if self.privacy_mode else "magenta"
+        return Panel(content, title="Status", border_style=border_color)
 
 
 class ConversationHistory(ScrollableContainer):
@@ -337,6 +342,9 @@ class VoiceTUI(App):
         self.dictation_mode: Optional[DictationMode] = None
         self.dictation_task: Optional[asyncio.Task] = None
         self.in_dictation = False
+        
+        # Privacy mode
+        self.privacy_mode = False
         
         # Audio monitoring
         self.audio_queue = asyncio.Queue()
@@ -653,8 +661,42 @@ class VoiceTUI(App):
                         self.exit()
                         break
                     
-                    # Check for dictation start command
+                    # Check for privacy mode commands
                     import re
+                    if re.search(r"(enable|start|activate)\s+privacy\s+mode", query.lower()):
+                        self.privacy_mode = True
+                        if self.status_bar:
+                            self.status_bar.privacy_mode = True
+                            self.status_bar.status = "Privacy mode enabled - listening only"
+                        if self.conversation:
+                            self.conversation.add_message(
+                                "System",
+                                "🔒 Privacy mode enabled - I'm listening but won't respond"
+                            )
+                        continue
+                    
+                    if re.search(r"(disable|stop|deactivate)\s+privacy\s+mode", query.lower()):
+                        self.privacy_mode = False
+                        if self.status_bar:
+                            self.status_bar.privacy_mode = False
+                            self.status_bar.status = "Privacy mode disabled"
+                        if self.conversation:
+                            self.conversation.add_message(
+                                "System",
+                                "🔓 Privacy mode disabled - I'm back to normal"
+                            )
+                        continue
+                    
+                    # If in privacy mode, just acknowledge but don't process
+                    if self.privacy_mode:
+                        if self.conversation:
+                            self.conversation.add_message(
+                                "System",
+                                "🔒 [Privacy mode - not responding]"
+                            )
+                        continue
+                    
+                    # Check for dictation start command
                     dictation_pattern = (
                         r"(start|take|begin)\s+(a\s+)?dictation"
                     )
@@ -839,8 +881,6 @@ class VoiceTUI(App):
     async def _start_dictation(self) -> None:
         """Start dictation mode."""
         try:
-            import speech_recognition as sr
-            
             self.in_dictation = True
             self.voice_loop_active = False  # Pause normal voice loop
             
@@ -853,9 +893,8 @@ class VoiceTUI(App):
                 self.text_input.display = False
             
             # Initialize dictation mode
-            recognizer = sr.Recognizer()
             self.dictation_mode = DictationMode(
-                recognizer=recognizer,
+                stt_provider=None,  # Will use default from config
                 silence_threshold=30.0,
                 sample_rate=self.sample_rate,
                 on_transcription=self._on_dictation_text,
